@@ -11,3 +11,7 @@ out/
 .vercel/
 *.log
 .DS_Store
+
+# Next.js が自動で作るファイル
+next-env.d.ts
+*.tsbuildinfo

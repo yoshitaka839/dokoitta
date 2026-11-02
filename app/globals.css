@@ -1,0 +1,32 @@
+:root {
+  --bg: #fffaf2;
+  --fg: #2b2b2b;
+  --accent: #1f6f5c;
+  --accent-fg: #ffffff;
+  --muted: #6b6b6b;
+  --card: #ffffff;
+  --line: #e4dccd;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); }
+body {
+  font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", system-ui, sans-serif;
+  font-size: 24px;
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+}
+main { max-width: 860px; margin: 0 auto; padding: 32px 20px 64px; }
+h1 { font-size: 40px; margin: 0 0 16px; }
+.big-button {
+  display: block; width: 100%; min-height: 120px;
+  font-size: 36px; font-weight: bold;
+  border: none; border-radius: 24px;
+  background: var(--accent); color: var(--accent-fg);
+  margin: 24px 0; cursor: pointer;
+}
+.big-button[disabled] { opacity: 0.5; }
+.big-button.listening { background: #b5482f; }
+.card { background: var(--card); border: 2px solid var(--line); border-radius: 20px; padding: 20px; margin: 16px 0; }
+.muted { color: var(--muted); font-size: 18px; }
+.log { font-size: 16px; font-family: ui-monospace, monospace; white-space: pre-wrap; max-height: 280px; overflow: auto; }
+a { color: var(--accent); }
