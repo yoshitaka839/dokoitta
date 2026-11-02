@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { understand } from "@/lib/normalize";
 
 // iPad の Safari が持つ音声認識（webkitSpeechRecognition）と読み上げ（speechSynthesis）を試すページ。
 // サーバーにもClaudeにも何も送らない。
@@ -31,8 +32,12 @@ export default function VoiceTest() {
   const [interim, setInterim] = useState("");
   const [finalText, setFinalText] = useState("");
   const [log, setLog] = useState<string[]>([]);
+  const [mode, setMode] = useState<"wait" | "single">("wait");
   const recRef = useRef<Recognition | null>(null);
   const startedAt = useRef<number>(0);
+  const textRef = useRef("");
+  const silenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const SILENCE_MS = 1500; // 話し終わってからこの時間黙っていたら区切る
 
   const addLog = (s: string) => {
     const t = new Date().toLocaleTimeString("ja-JP");
@@ -66,34 +71,49 @@ export default function VoiceTest() {
     const rec = new Ctor();
     rec.lang = "ja-JP";
     rec.interimResults = true;
-    rec.continuous = false;
+    // wait: 「眼鏡、」の後の短い間で切れないよう、続けて聞き、黙ったら自分で止める
+    rec.continuous = mode === "wait";
     rec.maxAlternatives = 1;
+    textRef.current = "";
+    setFinalText("");
+    const resetSilence = () => {
+      if (mode !== "wait") return;
+      if (silenceTimer.current) clearTimeout(silenceTimer.current);
+      silenceTimer.current = setTimeout(() => rec.stop(), SILENCE_MS);
+    };
     rec.onstart = () => {
       startedAt.current = performance.now();
       setListening(true);
-      addLog("聞き取り開始");
+      addLog(`聞き取り開始（${mode === "wait" ? "黙るまで待つ" : "区切りで止める"}）`);
     };
     rec.onresult = (e: any) => {
+      // 毎回、最初からの結果を組み立て直す（Safariで同じ言葉が二重に届くのを防ぐ）
       let fin = "";
       let mid = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
+      for (let i = 0; i < e.results.length; i++) {
         const r = e.results[i];
         if (r.isFinal) fin += r[0].transcript;
         else mid += r[0].transcript;
       }
-      setInterim(mid);
-      if (fin) {
-        const ms = Math.round(performance.now() - startedAt.current);
-        setFinalText(fin);
-        addLog(`確定: 「${fin}」（開始から${ms}ms）`);
-        speak(`${fin}、と聞こえました。`);
-      }
+      textRef.current = fin + mid;
+      setInterim(fin + mid);
+      resetSilence();
     };
     rec.onerror = (e: any) => addLog(`エラー: ${e.error ?? "不明"}`);
     rec.onend = () => {
+      if (silenceTimer.current) clearTimeout(silenceTimer.current);
       setListening(false);
       setInterim("");
-      addLog("聞き取り終了");
+      const text = textRef.current.trim();
+      const ms = Math.round(performance.now() - startedAt.current);
+      if (text) {
+        const u = understand(text);
+        setFinalText(text);
+        addLog(`確定: 「${text}」（${ms}ms）眼鏡=${u.glasses ? "○" : "×"} 探している=${u.searching ? "○" : "×"}`);
+        speak(`${text}、と聞こえました。`);
+      } else {
+        addLog(`聞き取れませんでした（${ms}ms）`);
+      }
     };
     recRef.current = rec;
     try {
@@ -116,6 +136,11 @@ export default function VoiceTest() {
           音声認識: {supported.stt ? "使えます" : "使えません"} ／ 読み上げ: {supported.tts ? "使えます" : "使えません"}
         </div>
       )}
+      <div className="card muted">
+        聞き方:{" "}
+        <label><input type="radio" checked={mode === "wait"} onChange={() => setMode("wait")} /> 黙るまで待つ（新）</label>{" "}
+        <label><input type="radio" checked={mode === "single"} onChange={() => setMode("single")} /> 区切りで止める（前回）</label>
+      </div>
       <button
         className={`big-button ${listening ? "listening" : ""}`}
         onClick={listening ? stop : start}
