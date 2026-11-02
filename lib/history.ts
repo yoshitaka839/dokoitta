@@ -1,0 +1,37 @@
+// 探した記録。今は iPad の中（localStorage）に残す。家族ページ用の保存先は後で足す。
+import type { FoundCounts } from "./rank";
+
+export type SearchRecord = {
+  at: string; // 始めた時刻（ISO）
+  utterances: string[]; // 本人の話（手がかり）
+  checked: string[]; // 確かめた場所ID（順番どおり）
+  foundAt?: string; // 見つかった場所ID
+  ended: "found" | "rest" | "all-checked" | "stopped";
+  rerankSource?: "claude" | "program";
+};
+
+const KEY = "dokoitta-history";
+
+export function loadHistory(): SearchRecord[] {
+  try {
+    return JSON.parse(localStorage.getItem(KEY) ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
+export function saveRecord(r: SearchRecord) {
+  try {
+    const all = loadHistory();
+    all.unshift(r);
+    localStorage.setItem(KEY, JSON.stringify(all.slice(0, 100)));
+  } catch {
+    /* 保存できなくても探す流れは止めない */
+  }
+}
+
+export function foundCounts(): FoundCounts {
+  const c: FoundCounts = {};
+  for (const r of loadHistory()) if (r.foundAt) c[r.foundAt] = (c[r.foundAt] ?? 0) + 1;
+  return c;
+}
