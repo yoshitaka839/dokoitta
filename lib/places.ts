@@ -13,6 +13,19 @@ export type Place = {
   base: number; // いつもの置き場所としての重み
   bands?: Partial<Record<TimeBand, number>>; // 時間帯ごとの加点（サンプル用）
   hours?: number[]; // 怪しい時刻（例: 16 → 15〜17時に大きく加点）
+  main?: boolean; // よく置く場所（最初はここだけ確かめる）
+};
+
+// 最初に確かめる「よく置く場所」の数（設定の上から）
+export const MAIN_COUNT = 4;
+
+// 体まわりは3か所を1回の問いかけにまとめる
+export const BODY_CHECK: Place = {
+  id: "body",
+  name: "頭の上・首元・ポケット",
+  action: "念のため、頭の上や首元、ポケットにかかっていませんか？手でさわってみてください",
+  body: true,
+  base: 100,
 };
 
 export const BODY_PLACES: Place[] = [
@@ -22,10 +35,10 @@ export const BODY_PLACES: Place[] = [
 ];
 
 export const SAMPLE_HOME_PLACES: Place[] = [
-  { id: "living_table", name: "居間のテーブル", action: "居間のテーブルの上と、新聞の下を見てください", base: 60, bands: { morning: 15, noon: 10 } },
-  { id: "tv_side", name: "テレビのそば", action: "テレビの前と、リモコンのあたりを見てください", base: 50, bands: { evening: 15, night: 10 } },
-  { id: "sofa", name: "ソファ", action: "ソファの上と、すき間を見てください", base: 45, bands: { noon: 10, evening: 10 } },
-  { id: "washroom", name: "洗面所", action: "洗面台のまわりを見てください", base: 45, bands: { morning: 20, night: 15 } },
+  { id: "living_table", name: "居間のテーブル", action: "居間のテーブルの上と、新聞の下を見てください", base: 60, bands: { morning: 15, noon: 10 }, main: true },
+  { id: "tv_side", name: "テレビのそば", action: "テレビの前と、リモコンのあたりを見てください", base: 50, bands: { evening: 15, night: 10 }, main: true },
+  { id: "sofa", name: "ソファ", action: "ソファの上と、すき間を見てください", base: 45, bands: { noon: 10, evening: 10 }, main: true },
+  { id: "washroom", name: "洗面所", action: "洗面台のまわりを見てください", base: 45, bands: { morning: 20, night: 15 }, main: true },
   { id: "bedside", name: "寝室の枕元", action: "枕元と、ふとんのまわりを見てください", base: 40, bands: { morning: 20, night: 20 } },
   { id: "kitchen", name: "台所", action: "台所のテーブルと、流しのまわりを見てください", base: 35, bands: { morning: 10, noon: 15, evening: 10 } },
   { id: "toilet", name: "トイレ", action: "トイレの棚の上を見てください", base: 30 },
@@ -54,6 +67,7 @@ export function parsePlacesText(text: string): Place[] {
       action: (action || `${name}を見てください`).slice(0, 80),
       base: Math.max(20, 70 - i * 5), // 上に書いた場所ほど、いつもの場所として重くする
       hours: hs.length ? hs : undefined,
+      main: out.length < MAIN_COUNT,
     });
   });
   return out.slice(0, 30);
@@ -80,8 +94,59 @@ export function saveHomeText(text: string | null) {
   }
 }
 
-export function getPlaces(): Place[] {
+export function getHomePlaces(): Place[] {
   const t = typeof window !== "undefined" ? loadHomeText() : null;
   const home = t ? parsePlacesText(t) : [];
-  return [...BODY_PLACES, ...(home.length ? home : SAMPLE_HOME_PLACES)];
+  return home.length ? home : SAMPLE_HOME_PLACES;
+}
+
+// ── していたこと → 場所 のつながり ──
+// 設定の1行: 「読書、数独 > 居間のテーブル」
+
+export type Activity = { keywords: string[]; placeName: string };
+
+export const SAMPLE_ACTIVITIES_TEXT = `新聞、テレビ > 居間のテーブル
+顔を洗、歯みがき > 洗面所
+昼寝、寝 > 寝室の枕元
+料理、食事、ごはん > 台所
+出かけ、買い物 > 玄関`;
+
+export function parseActivitiesText(text: string): Activity[] {
+  return text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#"))
+    .map((l) => {
+      const [left, right] = l.split(/>|＞|→|=>/).map((x) => (x ?? "").trim());
+      return {
+        keywords: (left ?? "").split(/[,、，\s]+/).map((k) => k.trim()).filter(Boolean).slice(0, 10),
+        placeName: (right ?? "").slice(0, 30),
+      };
+    })
+    .filter((a) => a.keywords.length && a.placeName)
+    .slice(0, 30);
+}
+
+const ACT_KEY = "dokoitta-activities";
+
+export function loadActivitiesText(): string | null {
+  try {
+    return localStorage.getItem(ACT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function saveActivitiesText(text: string | null) {
+  try {
+    if (text === null) localStorage.removeItem(ACT_KEY);
+    else localStorage.setItem(ACT_KEY, text);
+  } catch {
+    /* 保存できない端末ではサンプルのまま */
+  }
+}
+
+export function getActivities(): Activity[] {
+  const t = typeof window !== "undefined" ? loadActivitiesText() : null;
+  return parseActivitiesText(t ?? SAMPLE_ACTIVITIES_TEXT);
 }

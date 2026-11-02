@@ -1,13 +1,16 @@
 // 確かめる順番と、各場所で最初に言う一言を決める（画面や声とは切り離した純粋な処理）。
-// ・体まわり（頭の上・首元・服のポケット）はいつも先、順番も固定
-// ・家の中の場所はプログラムの点数順。本人の話に手がかりがあり、Claude が理由つきで
-//   並べ替えたときだけ、その順番を使う
-// ・理由の一言は「Claude の理由」→「怪しい時刻」→「前に見つかった」の順に選ぶ
+// 1. 会話に手がかりがあれば、その場所をいちばん先に（設定の「していたこと → 場所」で決める。
+//    設定にない手がかりは Claude が候補の中から選び、理由をそえる）
+// 2. 念のため、体まわり（頭の上・首元・ポケット）を1回の問いかけで確かめる
+// 3. よく置く場所（設定の上から4か所）を点数順に。怪しい時刻なら理由を言う
+// 4. それでもなければ、「ほかの場所も見ますか？」と聞いてから残りの場所へ
 
-import type { Place } from "./places";
-import { hourHit, mergeOrder, type FoundCounts } from "./rank";
+import { BODY_CHECK, type Activity, type Place } from "./places";
+import { hourHit, mergeOrder, scorePlaces, type FoundCounts } from "./rank";
 
+export type Step = { place: Place; reason: string };
 export type RerankResult = { order: string[]; reason: string; source: "claude" | "program" };
+export type Clue = { placeId: string; reason: string; by: "settings" | "claude" };
 
 // 眼鏡を探しているという言葉以外に、手がかりになりそうな話があるか
 const FILLER = /眼鏡|めがね|メガネ|老眼鏡|どこ|ドコ|何処|行った|いった|置いた|おいた|やった|かな|かなぁ|かなあ|だろう|でしょう|知らない|ない|ある|ちょっと|困った|困ってる|んです|です|ます|ね|よ|の|に|が|は|を|へ|あれ|えー|あー|[\s、。？?！!ーぁ]/g;
@@ -15,15 +18,26 @@ export function hasClue(text: string): boolean {
   return text.replace(FILLER, "").length >= 3;
 }
 
-export function splitPlaces(order: Place[]) {
-  return { body: order.filter((p) => p.body), home: order.filter((p) => !p.body) };
+// 設定の「していたこと → 場所」と話を照らし合わせる。長い言葉の一致を優先
+export function matchActivity(text: string, acts: Activity[], home: Place[]): Clue | null {
+  const t = text.replace(/\s+/g, "");
+  let best: { kw: string; place: Place } | null = null;
+  for (const a of acts) {
+    const place = home.find((p) => p.name === a.placeName);
+    if (!place) continue;
+    for (const kw of a.keywords) {
+      if (t.includes(kw) && (!best || kw.length > best.kw.length)) best = { kw, place };
+    }
+  }
+  return best ? { placeId: best.place.id, reason: `${best.kw}なら、${best.place.name}かもしれません`, by: "settings" } : null;
 }
 
-// プログラムの順番と Claude の結果から、家の中の順番を決める
-export function homeOrder(programHome: Place[], rr: RerankResult | null): { ids: string[]; claudeReason: string } {
-  const ids = programHome.map((p) => p.id);
-  if (!rr || rr.source !== "claude" || !rr.reason.trim()) return { ids, claudeReason: "" };
-  return { ids: mergeOrder(rr.order, ids), claudeReason: rr.reason.trim() };
+// Claude の結果から手がかりの場所を一つ選ぶ（理由がないときは使わない）
+export function clueFromRerank(rr: RerankResult | null, candidates: Place[]): Clue | null {
+  if (!rr || rr.source !== "claude" || !rr.reason.trim()) return null;
+  const ids = candidates.map((p) => p.id);
+  const top = mergeOrder(rr.order, ids)[0];
+  return top ? { placeId: top, reason: rr.reason.trim(), by: "claude" } : null;
 }
 
 export function programReason(p: Place, found: FoundCounts, now: Date): string {
@@ -33,16 +47,35 @@ export function programReason(p: Place, found: FoundCounts, now: Date): string {
   return "";
 }
 
+export function initialPlan(opts: { home: Place[]; found: FoundCounts; now: Date; clue?: Clue | null }): { first: Step[]; rest: Step[] } {
+  const scored = scorePlaces(opts.home, opts.found, opts.now).map((s) => s.place);
+  const cluePlace = opts.clue ? scored.find((p) => p.id === opts.clue!.placeId) : undefined;
+  const others = scored.filter((p) => p !== cluePlace);
+  const step = (p: Place): Step => ({ place: p, reason: programReason(p, opts.found, opts.now) });
+
+  const first: Step[] = [];
+  if (cluePlace) first.push({ place: cluePlace, reason: opts.clue!.reason });
+  first.push({ place: BODY_CHECK, reason: "" });
+  first.push(...others.filter((p) => p.main).map(step));
+  return { first, rest: others.filter((p) => !p.main).map(step) };
+}
+
+// 途中で手がかりが出たとき、その場所を（残りのどこにあっても）先頭に移す
+export function moveToFront(queue: Step[], rest: Step[], clue: Clue): { queue: Step[]; rest: Step[] } {
+  const pick = [...queue, ...rest].find((s) => s.place.id === clue.placeId);
+  if (!pick) return { queue, rest };
+  return {
+    queue: [{ place: pick.place, reason: clue.reason }, ...queue.filter((s) => s !== pick)],
+    rest: rest.filter((s) => s !== pick),
+  };
+}
+
 // 各場所の問いかけの文
-export function question(opts: {
-  place: Place;
-  index: number; // 全体で何番目か（0から）
-  firstHome: boolean; // 体まわりのあと、家の中で最初の場所か
-  reason: string;
-}): string {
+export function question(opts: { step: Step; index: number; afterBody: boolean }): string {
   const parts: string[] = [];
-  if (opts.firstHome && opts.index > 0) parts.push("体のまわりにはなかったですね。");
-  if (opts.reason) parts.push(`${opts.reason}。`);
-  parts.push(`${opts.index === 0 ? "まず、" : ""}${opts.place.action}。ありましたか？`);
+  if (opts.afterBody) parts.push("体のまわりにはなかったですね。");
+  if (opts.step.reason) parts.push(`${opts.step.reason}。`);
+  const lead = opts.index === 0 && !opts.step.reason && !opts.step.place.body ? "まず、" : "";
+  parts.push(`${lead}${opts.step.place.action}。ありましたか？`);
   return parts.join("");
 }
