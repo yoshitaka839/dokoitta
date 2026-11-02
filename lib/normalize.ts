@@ -9,3 +9,15 @@ export function understand(text: string) {
     searching: WHERE.some((w) => t.includes(w)),
   };
 }
+
+const YES = ["はい", "うん", "ええ", "そう", "お願い", "探して", "さがして", "頼む"];
+const NO = ["いいえ", "いや", "違う", "ちがう", "大丈夫", "いらない", "ない、", "結構"];
+
+// 「はい／いいえ」を判定する。どちらとも取れないときは null
+export function yesNo(text: string): boolean | null {
+  const t = text.replace(/\s+/g, "");
+  if (!t) return null;
+  if (NO.some((w) => t.includes(w))) return false;
+  if (YES.some((w) => t.includes(w))) return true;
+  return null;
+}
