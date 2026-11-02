@@ -13,15 +13,29 @@ import { canListen, listen, speak } from "@/lib/voice";
 import { foundAnswer, understand, yesNo } from "@/lib/normalize";
 import { getPlaces, type Place } from "@/lib/places";
 import { scorePlaces } from "@/lib/rank";
+import { hasClue, homeOrder, programReason, question, splitPlaces } from "@/lib/plan";
 import { foundCounts, saveRecord, type SearchRecord } from "@/lib/history";
 
 type Stage = "idle" | "speaking" | "listening" | "searching" | "done";
 type Answer = { ans: boolean | null; text: string };
 type FoundAns = { ans: "found" | "not" | "unsure" | null; text: string };
 
-const PER_ROUND = 4; // この数を確かめるごとに、続けるか休むか聞く
+const PER_ROUND = 4;
 
-async function rerank(utterance: string, candidates: Place[]) {
+// 練習用: /talk?at=16:00 のように時刻を指定すると、その時刻として順番を決める
+function currentTime(): Date {
+  const now = new Date();
+  try {
+    const at = new URLSearchParams(window.location.search).get("at");
+    const m = at?.match(/^(\d{1,2}):?(\d{2})?$/);
+    if (m) now.setHours(Number(m[1]) % 24, Number(m[2] ?? 0), 0, 0);
+  } catch {
+    /* 指定なし */
+  }
+  return now;
+} // この数を確かめるごとに、続けるか休むか聞く
+
+async function rerank(utterance: string, candidates: Place[], hour = new Date().getHours()) {
   const ids = candidates.map((p) => p.id);
   try {
     const r = await fetch("/api/rerank", {
@@ -30,7 +44,7 @@ async function rerank(utterance: string, candidates: Place[]) {
       body: JSON.stringify({
         utterance,
         candidates: candidates.map((p) => ({ id: p.id, name: p.name })),
-        hour: new Date().getHours(),
+        hour,
       }),
     });
     if (!r.ok) throw new Error(String(r.status));
@@ -110,26 +124,45 @@ export default function Talk() {
     setChecked([]);
 
     placesRef.current = getPlaces();
-    const programOrder = scorePlaces(placesRef.current, foundCounts()).map((s) => s.place);
-    let order = programOrder.map((p) => p.id);
-    // 返事を待つ間に「一緒に探しましょう」を読み上げて、待ち時間を感じにくくする
-    const pending = rerank(utterances.join("。"), programOrder);
+    const now = currentTime();
+    const found = foundCounts();
+    const { body, home } = splitPlaces(scorePlaces(placesRef.current, found, now).map((s) => s.place));
+    const said = utterances.join("。");
+
+    // 手がかりがあるときだけ Claude に家の中の順番を頼む（返事を待つ間に「一緒に探しましょう」を読み上げる）
+    const clue = hasClue(said);
+    const pending = clue ? rerank(said, home, now.getHours()) : Promise.resolve(null);
     await say("眼鏡を探しているんですね。一緒に探しましょう。");
     const rr = await pending;
-    order = rr.order;
-    rec.rerankSource = rr.source;
-    addLog(`並べ替え: ${rr.source}（${rr.ms}ms${rr.note ? ` / ${rr.note}` : ""}）→ ${order.map((id) => placeById(id)?.name).join("、")}`);
-    let reason = rr.reason;
+    const ho = homeOrder(home, rr);
+    rec.rerankSource = rr?.source ?? "program";
+    addLog(
+      clue
+        ? `並べ替え: ${rr?.source}（${rr?.ms}ms${rr?.note ? ` / ${rr.note}` : ""}）理由「${ho.claudeReason}」`
+        : "手がかりなし: プログラムの順番",
+    );
+    addLog(`順番: ${[...body.map((p) => p.id), ...ho.ids].map((id) => placeById(id)?.name).join("、")}`);
 
-    const queue = [...order];
+    const bodyQueue = body.map((p) => p.id);
+    const queue = [...ho.ids];
+    let claudeReason = ho.claudeReason;
+    let index = 0;
+    let homeStarted = false;
     let sinceAsk = 0;
-    while (queue.length > 0) {
-      const id = queue.shift()!;
+    while (bodyQueue.length + queue.length > 0) {
+      const fromBody = bodyQueue.length > 0;
+      const id = fromBody ? bodyQueue.shift()! : queue.shift()!;
       const place = placeById(id)!;
       setCurrent(id);
-      const intro = reason ? `${reason}。` : "";
-      reason = "";
-      let a = await askFound(`${intro}${place.action}。ありましたか？`);
+      let reason = "";
+      const firstHome = !fromBody && !homeStarted;
+      if (!fromBody) {
+        homeStarted = true;
+        reason = claudeReason || programReason(place, found, now);
+        claudeReason = "";
+      }
+      let a = await askFound(question({ place, index, firstHome, reason }));
+      index++;
       if (a.ans === null && !a.text) a = await askFound("ありましたか？");
       // 「はい」「うん」だけのときは、返事のつもりかもしれないので確かめる
       if (a.ans === "unsure") {
@@ -149,18 +182,21 @@ export default function Talk() {
         return;
       }
 
-      // 「いいえ」以外の話（例:「さっき新聞を読んでた」）は手がかりとして、残りを並べ替える
+      // 「いいえ」以外の話（例:「さっき新聞を読んでた」）は手がかりとして、家の中の残りを並べ替える
       if (a.ans === null && a.text) {
         rec.utterances.push(a.text);
-        const r2 = await rerank(rec.utterances.join("。"), queue.map((q) => placeById(q)!));
-        addLog(`手がかりで並べ替え: ${r2.source} → ${r2.order.map((q) => placeById(q)?.name).join("、")}`);
-        queue.splice(0, queue.length, ...r2.order);
-        reason = r2.reason;
-        if (!reason) await say("なるほど。");
+        if (hasClue(a.text) && queue.length > 1) {
+          const r2 = await rerank(rec.utterances.join("。"), queue.map((q) => placeById(q)!), now.getHours());
+          const o2 = homeOrder(queue.map((q) => placeById(q)!), r2);
+          addLog(`手がかりで並べ替え: ${r2.source} 理由「${o2.claudeReason}」→ ${o2.ids.map((q) => placeById(q)?.name).join("、")}`);
+          queue.splice(0, queue.length, ...o2.ids);
+          claudeReason = o2.claudeReason;
+        }
+        if (!claudeReason) await say("なるほど。");
       }
 
       sinceAsk++;
-      if (queue.length > 0 && sinceAsk >= PER_ROUND) {
+      if (bodyQueue.length + queue.length > 0 && sinceAsk >= PER_ROUND) {
         sinceAsk = 0;
         const c = await ask(`ここまで${rec.checked.length}か所見ました。続けますか？`);
         if (c.ans !== true) {

@@ -12,6 +12,17 @@ export function timeBand(d = new Date()): TimeBand {
 
 export type FoundCounts = Record<string, number>; // 場所の名前 → 見つかった回数
 
+// 怪しい時刻の前後1時間にいれば、その時刻を返す
+export function hourHit(p: Place, now: Date): number | null {
+  if (!p.hours) return null;
+  const h = now.getHours() + now.getMinutes() / 60;
+  for (const target of p.hours) {
+    const diff = Math.min(Math.abs(h - target), 24 - Math.abs(h - target));
+    if (diff <= 1) return target;
+  }
+  return null;
+}
+
 function hourBonus(p: Place, now: Date): number {
   if (!p.hours) return 0;
   const h = now.getHours() + now.getMinutes() / 60;
