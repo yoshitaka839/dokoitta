@@ -12,13 +12,23 @@ import { useEffect, useRef, useState } from "react";
 import { canListen, listen, speak } from "@/lib/voice";
 import { foundAnswer, understand, yesNo } from "@/lib/normalize";
 import { BODY_CHECK, getActivities, getHomePlaces, type Place } from "@/lib/places";
-import { clueFromRerank, hasClue, initialPlan, matchActivity, moveToFront, question, type Clue, type Step } from "@/lib/plan";
+import { clueFromRerank, hasClue, initialPlan, matchActivity, matchSpokenPlace, moveToFront, question, type Clue, type Step } from "@/lib/plan";
 import { foundCounts, saveRecord, type SearchRecord } from "@/lib/history";
 
 type Stage = "idle" | "speaking" | "listening" | "searching" | "done";
 type Answer = { ans: boolean | null; text: string };
 type FoundAns = { ans: "found" | "not" | "unsure" | null; text: string };
 
+
+// 練習モード: /talk?practice=1 か ?at=… のとき。記録は「練習」として分け、よく見つかる場所の回数に数えない
+function isPractice(): boolean {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    return q.has("practice") || q.has("at");
+  } catch {
+    return false;
+  }
+}
 
 // 練習用: /talk?at=16:00 のように時刻を指定すると、その時刻として順番を決める
 function currentTime(): Date {
@@ -117,7 +127,13 @@ export default function Talk() {
   };
 
   const search = async (utterances: string[]) => {
-    const rec: SearchRecord = { at: new Date().toISOString(), utterances: [...utterances], checked: [], ended: "stopped" };
+    const rec: SearchRecord = {
+      at: new Date().toISOString(),
+      utterances: [...utterances],
+      checked: [],
+      ended: "stopped",
+      practice: isPractice() || undefined,
+    };
     setStage("searching");
     setChecked([]);
 
@@ -129,7 +145,13 @@ export default function Talk() {
     const said = utterances.join("。");
 
     // 手がかりの場所: まず設定の「していたこと → 場所」、なければ Claude に候補の中から選んでもらう
+    // 優先順: 本人がその場で言った場所 → 設定のつながり → Claude
     const findClue = async (text: string, candidates: Place[]): Promise<Clue | null> => {
+      const spoken = matchSpokenPlace(text, candidates);
+      if (spoken) {
+        addLog(`手がかり（本人の話）: ${placeById(spoken.placeId)?.name}`);
+        return spoken;
+      }
       const bySettings = matchActivity(text, acts, candidates);
       if (bySettings) {
         addLog(`手がかり（設定）: ${placeById(bySettings.placeId)?.name}`);
@@ -266,9 +288,12 @@ export default function Talk() {
   };
 
   const currentPlace = current ? placeById(current) : null;
+  const [practice, setPractice] = useState(false);
+  useEffect(() => setPractice(isPractice()), []);
 
   return (
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      {practice && <div className="muted" style={{ textAlign: "center" }}>練習モード（記録は練習として分けて残します）</div>}
       {stage === "idle" && !running ? (
         <button className="touch-area" onClick={begin}>
           さわってください

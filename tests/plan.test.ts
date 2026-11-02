@@ -1,7 +1,7 @@
 // 探す順番が決めたとおりになるかを確かめる。場所はサンプル。実行: npm test
 import assert from "node:assert/strict";
 import { parseActivitiesText, parsePlacesText } from "../lib/places";
-import { clueFromRerank, hasClue, initialPlan, matchActivity, moveToFront, question } from "../lib/plan";
+import { clueFromRerank, hasClue, initialPlan, matchActivity, matchSpokenPlace, moveToFront, question } from "../lib/plan";
 import { foundAnswer } from "../lib/normalize";
 
 const home = parsePlacesText(`物置の棚 | 物置の棚の上を見てください | 16
@@ -46,6 +46,20 @@ const names = (steps: { place: { name: string } }[]) => steps.map((s) => s.place
   assert.equal(names(initialPlan({ home, found: {}, now: at16, clue: c2 }).first)[0], "玄関");
   // 存在しない場所へのつながりは無視
   assert.equal(matchActivity("料理してた", acts, home), null);
+}
+
+// 本人がその場で言った場所は、設定のつながりより優先（打ち消した場所は数えない）
+{
+  const t = "今日は居間じゃなくて台所で読書した";
+  const spoken = matchSpokenPlace(t, home);
+  assert.equal(spoken?.placeId, "h3"); // 台所
+  assert.equal(matchActivity(t, acts, home)?.placeId, "h2"); // 設定だけなら居間のテーブル
+  assert.equal(names(initialPlan({ home, found: {}, now: at16, clue: spoken }).first)[0], "台所");
+  assert.equal(spoken?.reason, "台所だったんですね");
+  // 「居間」だけでも「居間のテーブル」として聞き取る
+  assert.equal(matchSpokenPlace("居間で読書してた", home)?.placeId, "h2");
+  // 場所を言っていなければなし
+  assert.equal(matchSpokenPlace("眼鏡どこいった", home), null);
 }
 
 // 途中で出た手がかりは、残りの場所から先頭へ移す

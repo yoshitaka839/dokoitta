@@ -8,6 +8,7 @@ export type SearchRecord = {
   foundAt?: string; // 見つかった場所の名前
   ended: "found" | "rest" | "all-checked" | "stopped";
   rerankSource?: "claude" | "program";
+  practice?: boolean; // 練習・動作確認の記録（よく見つかる場所の回数には数えない）
 };
 
 const KEY = "dokoitta-history";
@@ -32,6 +33,6 @@ export function saveRecord(r: SearchRecord) {
 
 export function foundCounts(): FoundCounts {
   const c: FoundCounts = {};
-  for (const r of loadHistory()) if (r.foundAt) c[r.foundAt] = (c[r.foundAt] ?? 0) + 1;
+  for (const r of loadHistory()) if (r.foundAt && !r.practice) c[r.foundAt] = (c[r.foundAt] ?? 0) + 1;
   return c;
 }

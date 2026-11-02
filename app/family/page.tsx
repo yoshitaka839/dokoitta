@@ -43,7 +43,7 @@ export default function Family() {
         )}
       </div>
 
-      {records.map((r, i) => (
+      {records.filter((r) => !r.practice).map((r, i) => (
         <div className="card" key={i}>
           <div style={{ fontWeight: "bold" }}>
             {new Date(r.at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" })}
@@ -54,6 +54,19 @@ export default function Family() {
           <div style={{ fontSize: 20 }}>見た場所：{r.checked.length ? r.checked.join(" → ") : "なし"}</div>
         </div>
       ))}
+
+      {records.some((r) => r.practice) && (
+        <details className="card">
+          <summary className="muted">練習・動作確認の記録（{records.filter((r) => r.practice).length}件、回数には数えません）</summary>
+          {records.filter((r) => r.practice).map((r, i) => (
+            <div key={i} style={{ fontSize: 18, marginTop: 8 }}>
+              {new Date(r.at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}　
+              {ENDED[r.ended]}
+              {r.foundAt ? `：${r.foundAt}` : ""}　見た場所：{r.checked.join(" → ") || "なし"}
+            </div>
+          ))}
+        </details>
+      )}
 
       <p>
         <Link href="/">トップへ</Link>

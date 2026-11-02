@@ -10,7 +10,27 @@ import { hourHit, mergeOrder, scorePlaces, type FoundCounts } from "./rank";
 
 export type Step = { place: Place; reason: string };
 export type RerankResult = { order: string[]; reason: string; source: "claude" | "program" };
-export type Clue = { placeId: string; reason: string; by: "settings" | "claude" };
+export type Clue = { placeId: string; reason: string; by: "spoken" | "settings" | "claude" };
+
+// 場所の呼び方のゆれ（「居間のテーブル」→「居間」「テーブル」も同じ場所として聞き取る）
+const GENERIC = new Set(["前", "中", "上", "下", "横", "そば", "まわり", "周り"]);
+export function aliases(p: Place): string[] {
+  const parts = p.name.split("の").filter((x) => x.length >= 2 && !GENERIC.has(x));
+  return [...new Set([p.name, ...parts])];
+}
+
+// 本人がその場で場所を言ったら、登録のつながりより優先する。
+// 「〜じゃなくて」「〜ではなく」の前の場所は打ち消しなので数えない
+export function matchSpokenPlace(text: string, home: Place[]): Clue | null {
+  const t = text.replace(/\s+/g, "").replace(/[^、。]*?(じゃなくて|じゃなく|ではなくて|ではなく|でなくて|じゃない)/g, "");
+  let best: { alias: string; place: Place } | null = null;
+  for (const p of home) {
+    for (const a of aliases(p)) {
+      if (t.includes(a) && (!best || a.length > best.alias.length)) best = { alias: a, place: p };
+    }
+  }
+  return best ? { placeId: best.place.id, reason: `${best.place.name}だったんですね`, by: "spoken" } : null;
+}
 
 // 眼鏡を探しているという言葉以外に、手がかりになりそうな話があるか
 const FILLER = /眼鏡|めがね|メガネ|老眼鏡|どこ|ドコ|何処|行った|いった|置いた|おいた|やった|かな|かなぁ|かなあ|だろう|でしょう|知らない|ない|ある|ちょっと|困った|困ってる|んです|です|ます|ね|よ|の|に|が|は|を|へ|あれ|えー|あー|[\s、。？?！!ーぁ]/g;
