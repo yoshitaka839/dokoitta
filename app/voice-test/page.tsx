@@ -128,6 +128,7 @@ export default function VoiceTest() {
   return (
     <main>
       <h1>声の聞き取りテスト</h1>
+      <p className="muted">版: {process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "手元"}</p>
       <p className="muted">
         ボタンを押して「眼鏡、どこいった？」などと話してください。聞き取った言葉を読み上げます。声はこの端末の中だけで処理し、記録は送りません。
       </p>
