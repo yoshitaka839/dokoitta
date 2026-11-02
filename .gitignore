@@ -1,0 +1,13 @@
+# 秘密情報（絶対にpushしない）
+.env
+.env.*
+!.env.example
+.private/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.vercel/
+*.log
+.DS_Store
