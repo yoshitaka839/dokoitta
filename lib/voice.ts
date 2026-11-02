@@ -32,10 +32,17 @@ export function speak(text: string, rate = 0.85): Promise<void> {
 
 export type ListenResult = { text: string; error?: string };
 
-// 話し終わって silenceMs 黙ったら区切る。何も話さなければ maxMs で終わる。
-export function listen(opts: { silenceMs?: number; maxMs?: number; onPartial?: (t: string) => void } = {}): Promise<ListenResult> {
-  const silenceMs = opts.silenceMs ?? 1500;
-  const maxMs = opts.maxMs ?? 8000;
+// 「〜けど」「〜て」など、話の途中で終わっていそうなら長めに待つ
+const UNFINISHED = /(けど|けれど|が|て|で|から|ので|し|と|は|を|に|ね|、|えー|あの|えっと)$/;
+
+// 話し終わって silenceMs 黙ったら区切る（途中っぽければ unfinishedMs まで待つ）。
+// 何も話さなければ maxMs で終わる。父はゆっくり間をあけて話すので、既定値は長め。
+export function listen(
+  opts: { silenceMs?: number; unfinishedMs?: number; maxMs?: number; onPartial?: (t: string) => void } = {},
+): Promise<ListenResult> {
+  const silenceMs = opts.silenceMs ?? 3000;
+  const unfinishedMs = opts.unfinishedMs ?? 5000;
+  const maxMs = opts.maxMs ?? 20000;
   return new Promise((resolve) => {
     const w = window as any;
     const Ctor = w.SpeechRecognition || w.webkitSpeechRecognition;
@@ -54,7 +61,8 @@ export function listen(opts: { silenceMs?: number; maxMs?: number; onPartial?: (
       text = all;
       opts.onPartial?.(all);
       if (silence) clearTimeout(silence);
-      silence = setTimeout(() => rec.stop(), silenceMs);
+      const wait = UNFINISHED.test(all.trim()) ? unfinishedMs : silenceMs;
+      silence = setTimeout(() => rec.stop(), wait);
     };
     rec.onerror = (e: any) => {
       error = e.error ?? "unknown";

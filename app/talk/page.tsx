@@ -10,27 +10,33 @@
 
 import { useEffect, useRef, useState } from "react";
 import { canListen, listen, speak } from "@/lib/voice";
-import { understand, yesNo } from "@/lib/normalize";
-import { placeById } from "@/lib/places";
+import { foundAnswer, understand, yesNo } from "@/lib/normalize";
+import { getPlaces, type Place } from "@/lib/places";
 import { scorePlaces } from "@/lib/rank";
 import { foundCounts, saveRecord, type SearchRecord } from "@/lib/history";
 
 type Stage = "idle" | "speaking" | "listening" | "searching" | "done";
 type Answer = { ans: boolean | null; text: string };
+type FoundAns = { ans: "found" | "not" | "unsure" | null; text: string };
 
 const PER_ROUND = 4; // この数を確かめるごとに、続けるか休むか聞く
 
-async function rerank(utterance: string, candidates: string[]) {
+async function rerank(utterance: string, candidates: Place[]) {
+  const ids = candidates.map((p) => p.id);
   try {
     const r = await fetch("/api/rerank", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ utterance, candidates }),
+      body: JSON.stringify({
+        utterance,
+        candidates: candidates.map((p) => ({ id: p.id, name: p.name })),
+        hour: new Date().getHours(),
+      }),
     });
     if (!r.ok) throw new Error(String(r.status));
     return (await r.json()) as { order: string[]; reason: string; source: "claude" | "program"; note?: string; ms: number };
   } catch (e) {
-    return { order: candidates, reason: "", source: "program" as const, note: String(e), ms: 0 };
+    return { order: ids, reason: "", source: "program" as const, note: String(e), ms: 0 };
   }
 }
 
@@ -39,11 +45,15 @@ export default function Talk() {
   const [said, setSaid] = useState("");
   const [heard, setHeard] = useState("");
   const [showButtons, setShowButtons] = useState(false);
+  const [buttonKind, setButtonKind] = useState<"yesno" | "found">("yesno");
   const [current, setCurrent] = useState<string | null>(null);
   const [checked, setChecked] = useState<string[]>([]);
   const [log, setLog] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const pendingAnswer = useRef<((v: Answer) => void) | null>(null);
+  const pendingFound = useRef<((v: FoundAns) => void) | null>(null);
+  const placesRef = useRef<Place[]>([]);
+  const placeById = (id: string) => placesRef.current.find((p) => p.id === id);
 
   const addLog = (s: string) => setLog((l) => [`${new Date().toLocaleTimeString("ja-JP")} ${s}`, ...l].slice(0, 60));
 
@@ -68,6 +78,7 @@ export default function Talk() {
   // 質問して、はい／いいえを声かボタンの早い方で受け取る。どちらでもない話は text に入る
   const ask = async (question: string, opts: { glassesMeansYes?: boolean } = {}): Promise<Answer> => {
     await say(question);
+    setButtonKind("yesno");
     setShowButtons(true);
     const byButton = new Promise<Answer>((res) => (pendingAnswer.current = res));
     const byVoice = hear().then((text) => {
@@ -80,19 +91,34 @@ export default function Talk() {
     return a;
   };
 
+  // 「ありましたか？」専用。「あった／なかった」を声かボタンで受け取る
+  const askFound = async (question: string): Promise<FoundAns> => {
+    await say(question);
+    setButtonKind("found");
+    setShowButtons(true);
+    const byButton = new Promise<FoundAns>((res) => (pendingFound.current = res));
+    const byVoice = hear().then((text) => ({ ans: foundAnswer(text), text }));
+    const a = await Promise.race([byButton, byVoice]);
+    pendingFound.current = null;
+    setShowButtons(false);
+    return a;
+  };
+
   const search = async (utterances: string[]) => {
     const rec: SearchRecord = { at: new Date().toISOString(), utterances: [...utterances], checked: [], ended: "stopped" };
     setStage("searching");
     setChecked([]);
 
-    let order = scorePlaces(foundCounts()).map((s) => s.place.id);
-    // 話していただく間に Claude に並べ替えを頼む（返事を待つ間に「一緒に探しましょう」を読み上げる）
-    const pending = rerank(utterances.join("。"), order);
+    placesRef.current = getPlaces();
+    const programOrder = scorePlaces(placesRef.current, foundCounts()).map((s) => s.place);
+    let order = programOrder.map((p) => p.id);
+    // 返事を待つ間に「一緒に探しましょう」を読み上げて、待ち時間を感じにくくする
+    const pending = rerank(utterances.join("。"), programOrder);
     await say("眼鏡を探しているんですね。一緒に探しましょう。");
     const rr = await pending;
     order = rr.order;
     rec.rerankSource = rr.source;
-    addLog(`並べ替え: ${rr.source}（${rr.ms}ms${rr.note ? ` / ${rr.note}` : ""}）→ ${order.join(", ")}`);
+    addLog(`並べ替え: ${rr.source}（${rr.ms}ms${rr.note ? ` / ${rr.note}` : ""}）→ ${order.map((id) => placeById(id)?.name).join("、")}`);
     let reason = rr.reason;
 
     const queue = [...order];
@@ -103,13 +129,18 @@ export default function Talk() {
       setCurrent(id);
       const intro = reason ? `${reason}。` : "";
       reason = "";
-      let a = await ask(`${intro}${place.action}。ありましたか？`);
-      if (a.ans === null && !a.text) a = await ask("ありましたか？");
-      rec.checked.push(id);
+      let a = await askFound(`${intro}${place.action}。ありましたか？`);
+      if (a.ans === null && !a.text) a = await askFound("ありましたか？");
+      // 「はい」「うん」だけのときは、返事のつもりかもしれないので確かめる
+      if (a.ans === "unsure") {
+        const c = await askFound("眼鏡、見つかりましたか？");
+        a = c.ans === "unsure" ? { ans: "found", text: c.text } : c;
+      }
+      rec.checked.push(place.name);
       setChecked([...rec.checked]);
 
-      if (a.ans === true) {
-        rec.foundAt = id;
+      if (a.ans === "found") {
+        rec.foundAt = place.name;
         rec.ended = "found";
         saveRecord(rec);
         setStage("done");
@@ -121,8 +152,8 @@ export default function Talk() {
       // 「いいえ」以外の話（例:「さっき新聞を読んでた」）は手がかりとして、残りを並べ替える
       if (a.ans === null && a.text) {
         rec.utterances.push(a.text);
-        const r2 = await rerank(rec.utterances.join("。"), queue);
-        addLog(`手がかりで並べ替え: ${r2.source} → ${r2.order.join(", ")}`);
+        const r2 = await rerank(rec.utterances.join("。"), queue.map((q) => placeById(q)!));
+        addLog(`手がかりで並べ替え: ${r2.source} → ${r2.order.map((q) => placeById(q)?.name).join("、")}`);
         queue.splice(0, queue.length, ...r2.order);
         reason = r2.reason;
         if (!reason) await say("なるほど。");
@@ -173,6 +204,13 @@ export default function Talk() {
     }
   };
 
+  const answerFound = (v: "found" | "not") => {
+    if (pendingFound.current) {
+      window.speechSynthesis?.cancel();
+      pendingFound.current({ ans: v, text: "" });
+    }
+  };
+
   const answer = (v: boolean) => {
     if (pendingAnswer.current) {
       window.speechSynthesis?.cancel();
@@ -202,14 +240,20 @@ export default function Talk() {
           <div className="said">{said}</div>
           <div className={`mic ${stage === "listening" ? "on" : ""}`}>🎤</div>
           <div className="heard">{heard}</div>
-          {showButtons && (
+          {showButtons && buttonKind === "yesno" && (
             <div className="answer-buttons">
               <button className="big-button yes" onClick={() => answer(true)}>はい</button>
               <button className="big-button no" onClick={() => answer(false)}>いいえ</button>
             </div>
           )}
+          {showButtons && buttonKind === "found" && (
+            <div className="answer-buttons">
+              <button className="big-button yes" onClick={() => answerFound("found")}>あった</button>
+              <button className="big-button no" onClick={() => answerFound("not")}>なかった</button>
+            </div>
+          )}
           {checked.length > 0 && (
-            <div className="checked muted">見た場所: {checked.map((id) => placeById(id)?.name).join("、")}</div>
+            <div className="checked muted">見た場所: {checked.join("、")}</div>
           )}
           {stage === "done" && !running && (
             <button className="big-button" style={{ minHeight: 80, fontSize: 28 }} onClick={reset}>

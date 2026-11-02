@@ -6,7 +6,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
-import { placeById } from "@/lib/places";
 import { mergeOrder } from "@/lib/rank";
 
 export const runtime = "nodejs";
@@ -23,14 +22,21 @@ const SYSTEM = `あなたは、高齢の方が眼鏡を探すのを手伝う係�
 
 export async function POST(req: Request) {
   const started = Date.now();
-  let body: { utterance?: string; candidates?: string[] };
+  let body: { utterance?: string; candidates?: { id?: unknown; name?: unknown }[]; hour?: unknown };
   try {
     body = await req.json();
   } catch {
     return Response.json({ error: "bad request" }, { status: 400 });
   }
   const utterance = (body.utterance ?? "").slice(0, 300);
-  const candidates = (body.candidates ?? []).filter((id) => placeById(id));
+  // 候補は iPad から名前つきで届く（家の場所は iPad にだけ保存しているため）。形を確かめてから使う
+  const items = (Array.isArray(body.candidates) ? body.candidates : [])
+    .filter((c) => typeof c?.id === "string" && /^[a-z0-9_-]{1,40}$/.test(c.id) && typeof c?.name === "string")
+    .slice(0, 30)
+    .map((c) => ({ id: c.id as string, name: (c.name as string).slice(0, 30) }));
+  const candidates = [...new Set(items.map((c) => c.id))];
+  const nameOf = (id: string) => items.find((c) => c.id === id)!.name;
+  const hour = typeof body.hour === "number" && body.hour >= 0 && body.hour < 24 ? Math.floor(body.hour) : null;
   const fallback = (why: string) =>
     Response.json({ order: candidates, reason: "", source: "program", note: why, ms: Date.now() - started });
 
@@ -43,7 +49,7 @@ export async function POST(req: Request) {
     order: z.array(z.enum(ids)),
     reason: z.string(),
   });
-  const list = candidates.map((id, i) => `${i + 1}. ${id}（${placeById(id)!.name}）`).join("\n");
+  const list = candidates.map((id, i) => `${i + 1}. ${id}（${nameOf(id)}）`).join("\n");
 
   try {
     const client = new Anthropic({ maxRetries: 0, timeout: TIMEOUT_MS });
@@ -55,7 +61,7 @@ export async function POST(req: Request) {
       messages: [
         {
           role: "user",
-          content: `本人の話:「${utterance}」\n\n候補（今の順番）:\n${list}`,
+          content: `${hour !== null ? `今は${hour}時ごろ。\n` : ""}本人の話:「${utterance}」\n\n候補（今の順番）:\n${list}`,
         },
       ],
       output_config: { effort: "low", format: zodOutputFormat(Schema) },

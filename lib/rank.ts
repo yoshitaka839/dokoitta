@@ -1,5 +1,6 @@
-// 候補の順番をプログラムで決める。点数 = いつもの重み + 時間帯の加点 + 過去に見つかった回数の加点
-import { PLACES, type Place, type TimeBand } from "./places";
+// 候補の順番をプログラムで決める。
+// 点数 = いつもの重み + 時間帯の加点 + 怪しい時刻の加点 + 過去に見つかった回数の加点
+import type { Place, TimeBand } from "./places";
 
 export function timeBand(d = new Date()): TimeBand {
   const h = d.getHours();
@@ -9,17 +10,32 @@ export function timeBand(d = new Date()): TimeBand {
   return "night";
 }
 
-export type FoundCounts = Record<string, number>;
+export type FoundCounts = Record<string, number>; // 場所の名前 → 見つかった回数
 
-export function scorePlaces(found: FoundCounts = {}, band: TimeBand = timeBand()) {
-  return PLACES.map((p: Place) => ({
-    place: p,
-    score: p.base + (p.bands?.[band] ?? 0) + Math.min(found[p.id] ?? 0, 5) * 12,
-  })).sort((a, b) => {
-    // 体まわりは常に先（いちばん手軽に確かめられるため）
-    if (!!a.place.body !== !!b.place.body) return a.place.body ? -1 : 1;
-    return b.score - a.score;
-  });
+function hourBonus(p: Place, now: Date): number {
+  if (!p.hours) return 0;
+  const h = now.getHours() + now.getMinutes() / 60;
+  let best = 0;
+  for (const target of p.hours) {
+    const diff = Math.min(Math.abs(h - target), 24 - Math.abs(h - target));
+    if (diff <= 1) best = Math.max(best, 40);
+    else if (diff <= 2) best = Math.max(best, 20);
+  }
+  return best;
+}
+
+export function scorePlaces(places: Place[], found: FoundCounts = {}, now = new Date()) {
+  const band = timeBand(now);
+  return places
+    .map((p) => ({
+      place: p,
+      score: p.base + (p.bands?.[band] ?? 0) + hourBonus(p, now) + Math.min(found[p.name] ?? 0, 5) * 12,
+    }))
+    .sort((a, b) => {
+      // 体まわりは常に先（いちばん手軽に確かめられるため）
+      if (!!a.place.body !== !!b.place.body) return a.place.body ? -1 : 1;
+      return b.score - a.score;
+    });
 }
 
 // Claude が返した順番を受け取り、候補にないIDを捨て、抜けたIDをプログラムの順で後ろに足す

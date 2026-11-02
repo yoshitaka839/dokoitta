@@ -4,8 +4,8 @@ import type { FoundCounts } from "./rank";
 export type SearchRecord = {
   at: string; // 始めた時刻（ISO）
   utterances: string[]; // 本人の話（手がかり）
-  checked: string[]; // 確かめた場所ID（順番どおり）
-  foundAt?: string; // 見つかった場所ID
+  checked: string[]; // 確かめた場所の名前（順番どおり）
+  foundAt?: string; // 見つかった場所の名前
   ended: "found" | "rest" | "all-checked" | "stopped";
   rerankSource?: "claude" | "program";
 };

@@ -9,7 +9,7 @@ export default function Home() {
         はじめる
       </Link>
       <p className="muted">
-        <Link href="/voice-test">声の聞き取りテスト</Link>
+        <Link href="/settings">場所の設定（家族用）</Link> ／ <Link href="/voice-test">声の聞き取りテスト</Link>
       </p>
     </main>
   );

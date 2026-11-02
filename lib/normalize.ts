@@ -21,3 +21,17 @@ export function yesNo(text: string): boolean | null {
   if (YES.some((w) => t.includes(w))) return true;
   return null;
 }
+
+// 見つかったかどうか。「はい」「うん」だけは返事のつもりのことがあるので "unsure" にして聞き直す
+const NOT_FOUND = ["なかった", "ない", "無い", "ありません", "見つからない", "みつからない", "違う", "ちがう", "いいえ"];
+const FOUND = ["あった", "有った", "あります", "ありました", "見つけた", "見つかった", "みつけた", "みつかった", "これだ", "ここだ"];
+const PLAIN_YES = ["はい", "うん", "ええ", "そう"];
+
+export function foundAnswer(text: string): "found" | "not" | "unsure" | null {
+  const t = text.replace(/\s+/g, "");
+  if (!t) return null;
+  if (NOT_FOUND.some((w) => t.includes(w))) return "not";
+  if (FOUND.some((w) => t.includes(w))) return "found";
+  if (PLAIN_YES.some((w) => t.includes(w))) return "unsure";
+  return null;
+}
