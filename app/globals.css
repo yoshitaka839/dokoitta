@@ -50,3 +50,5 @@ a { color: var(--accent); }
 .big-button.no { background: #8a8a8a; }
 .place { font-size: 28px; color: var(--accent); font-weight: bold; border: 3px solid var(--accent); border-radius: 999px; padding: 4px 24px; }
 .checked { font-size: 20px; }
+.wait-note { font-size: 28px; color: var(--accent); font-weight: bold; }
+.big-button.undo { background: transparent; color: var(--muted); border: 2px solid var(--line); min-height: 64px; font-size: 24px; margin: 0; }

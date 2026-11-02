@@ -36,3 +36,16 @@ export function foundCounts(): FoundCounts {
   for (const r of loadHistory()) if (r.foundAt && !r.practice) c[r.foundAt] = (c[r.foundAt] ?? 0) + 1;
   return c;
 }
+
+// いちばん新しい記録の「見つかった場所」を直す（取り消しは undefined）
+export function updateLatestFound(foundAt: string | undefined) {
+  try {
+    const all = loadHistory();
+    if (!all[0]) return;
+    all[0].foundAt = foundAt;
+    all[0].ended = foundAt ? "found" : "stopped";
+    localStorage.setItem(KEY, JSON.stringify(all));
+  } catch {
+    /* 保存できなくても流れは止めない */
+  }
+}

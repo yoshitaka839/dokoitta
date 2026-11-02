@@ -9,15 +9,17 @@
 // 「必ず見つかる」とは言わない。
 
 import { useEffect, useRef, useState } from "react";
-import { canListen, listen, speak } from "@/lib/voice";
+import { canListen, listen, speak, stopListening } from "@/lib/voice";
 import { foundAnswer, understand, yesNo } from "@/lib/normalize";
 import { BODY_CHECK, getActivities, getHomePlaces, type Place } from "@/lib/places";
 import { clueFromRerank, hasClue, initialPlan, matchActivity, matchSpokenPlace, moveToFront, question, type Clue, type Step } from "@/lib/plan";
-import { foundCounts, saveRecord, type SearchRecord } from "@/lib/history";
+import { foundCounts, saveRecord, updateLatestFound, type SearchRecord } from "@/lib/history";
 
 type Stage = "idle" | "speaking" | "listening" | "searching" | "done";
 type Answer = { ans: boolean | null; text: string };
-type FoundAns = { ans: "found" | "not" | "unsure" | null; text: string };
+type FoundAns = { ans: "found" | "not" | "unsure" | "undo" | null; text: string };
+
+const WAIT_MS = 3 * 60 * 1000; // 探しに行っている間に待つ時間（短い沈黙は失敗扱いにしない）
 
 
 // 練習モード: /talk?practice=1 か ?at=… のとき。記録は「練習」として分け、よく見つかる場所の回数に数えない
@@ -72,6 +74,8 @@ export default function Talk() {
   const [checked, setChecked] = useState<string[]>([]);
   const [log, setLog] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
+  const [waiting, setWaiting] = useState(false);
+  const [savedFound, setSavedFound] = useState<string | null>(null);
   const pendingAnswer = useRef<((v: Answer) => void) | null>(null);
   const pendingFound = useRef<((v: FoundAns) => void) | null>(null);
   const placesRef = useRef<Place[]>([]);
@@ -113,17 +117,60 @@ export default function Talk() {
     return a;
   };
 
-  // 「ありましたか？」専用。「あった／なかった」を声かボタンで受け取る
-  const askFound = async (question: string): Promise<FoundAns> => {
+  // 探しに行ってもらい、「あった／なかった／取り消し」を待つ。
+  // 黙っている間や、関係のない声は聞き流して待ち続ける（WAIT_MS まで）。ボタンでも答えられる
+  const waitFound = async (question: string): Promise<FoundAns> => {
     await say(question);
     setButtonKind("found");
     setShowButtons(true);
+    setWaiting(true);
+    let done = false;
     const byButton = new Promise<FoundAns>((res) => (pendingFound.current = res));
-    const byVoice = hear().then((text) => ({ ans: foundAnswer(text), text }));
+    const byVoice = (async (): Promise<FoundAns> => {
+      for (let round = 0; round < 2 && !done; round++) {
+        const until = Date.now() + WAIT_MS;
+        while (!done && Date.now() < until) {
+          setHeard("");
+          setStage("listening");
+          const r = await listen({ onPartial: setHeard, maxMs: 30000, silenceMs: 2500 });
+          if (done) break;
+          if (r.text) addLog(`聞き取り: 「${r.text}」`);
+          // 長い話（テレビの声など）は「ない」などの言葉が混ざりやすいので、答えとしては扱わない
+          const ans = r.text.length <= 20 ? foundAnswer(r.text) : null;
+          if (ans) return { ans, text: r.text };
+          if (r.text && hasClue(r.text)) return { ans: null, text: r.text };
+          if (r.error === "not-allowed" || r.error === "service-not-allowed") return await byButton;
+        }
+        if (!done && round === 0) await say("ゆっくりで大丈夫です。あったか、なかったか、教えてください。");
+      }
+      return { ans: null, text: "" };
+    })();
     const a = await Promise.race([byButton, byVoice]);
+    done = true;
+    stopListening();
     pendingFound.current = null;
     setShowButtons(false);
+    setWaiting(false);
     return a;
+  };
+
+  // 見つかった場所を保存する前に「〜ですね？」と短く確かめる。違えば言い直してもらう
+  const confirmFound = async (place: Place): Promise<string | null> => {
+    let candidate: Place | null = place;
+    for (let i = 0; i < 2 && candidate; i++) {
+      const c = await ask(`${candidate.name}ですね？`);
+      if (c.ans === true) return candidate.name;
+      const spoken = c.text ? matchSpokenPlace(c.text, placesRef.current) : null;
+      if (spoken) {
+        candidate = placeById(spoken.placeId) ?? null;
+        continue;
+      }
+      await say("どこにありましたか？");
+      const where = await hear();
+      const m = where ? matchSpokenPlace(where, placesRef.current) : null;
+      candidate = m ? placeById(m.placeId) ?? null : null;
+    }
+    return null;
   };
 
   const search = async (utterances: string[]) => {
@@ -177,6 +224,8 @@ export default function Talk() {
     let index = 0;
     let prevBody = false;
     let inRest = false;
+    let toldHowToAnswer = false;
+    let last: Step | null = null; // ひとつ前に「なかった」と答えた場所（取り消し用）
     while (queue.length > 0 || rest.length > 0) {
       if (queue.length === 0) {
         // よく置く場所にはなかった → 残りの場所を見るか聞く
@@ -197,27 +246,66 @@ export default function Talk() {
       const step = queue.shift()!;
       const place = step.place;
       setCurrent(place.id);
-      let a = await askFound(question({ step, index, afterBody: prevBody }));
+      const q = question({ step, index, afterBody: prevBody, explain: !toldHowToAnswer && !place.body });
+      if (!place.body) toldHowToAnswer = true;
+      let a = await waitFound(q);
       index++;
+
+      // 「さっきの取り消し」「違う」→ ひとつ前の場所をもう一度
+      if (a.ans === "undo") {
+        queue.unshift(step);
+        if (last) {
+          rec.checked.pop();
+          setChecked([...rec.checked]);
+          queue.unshift(last);
+          await say(`わかりました。さっきの${last.place.name}を、もう一度聞きますね。`);
+          last = null;
+        } else {
+          await say("わかりました。もう一度聞きますね。");
+        }
+        prevBody = false;
+        continue;
+      }
       prevBody = !!place.body;
-      if (a.ans === null && !a.text) a = await askFound("ありましたか？");
+
       // 「はい」「うん」だけのときは、返事のつもりかもしれないので確かめる
       if (a.ans === "unsure") {
-        const c = await askFound("眼鏡、見つかりましたか？");
+        const c = await waitFound("眼鏡、見つかりましたか？");
         a = c.ans === "unsure" ? { ans: "found", text: c.text } : c;
       }
-      rec.checked.push(place.name);
-      setChecked([...rec.checked]);
 
       if (a.ans === "found") {
-        rec.foundAt = place.name;
+        const at = await confirmFound(place);
+        rec.checked.push(place.name);
+        setChecked([...rec.checked]);
+        rec.foundAt = at ?? undefined;
         rec.ended = "found";
         saveRecord(rec);
+        setSavedFound(at);
         setStage("done");
-        setCurrent(place.id);
-        await say(`あったね。よかった。${place.name}でしたね。覚えておきます。`);
+        setCurrent(null);
+        await say(
+          at
+            ? `あったね。よかった。${at}でしたね。覚えておきます。`
+            : "あったね。よかった。場所は記録しないでおきますね。",
+        );
         return;
       }
+
+      if (a.ans === null && !a.text) {
+        // 長いあいだ返事がなかった
+        rec.checked.push(place.name);
+        rec.ended = "rest";
+        saveRecord(rec);
+        setStage("done");
+        setCurrent(null);
+        await say("少し休みましょうか。見た場所は残しておきます。また呼んでくださいね。");
+        return;
+      }
+
+      rec.checked.push(place.name);
+      setChecked([...rec.checked]);
+      last = step;
 
       // 「なかった」以外の話（例:「そういえば本を読んでた」）は手がかりとして、その場所を先に
       if (a.ans === null && a.text) {
@@ -265,7 +353,8 @@ export default function Talk() {
     }
   };
 
-  const answerFound = (v: "found" | "not") => {
+  const answerFound = (v: "found" | "not" | "undo") => {
+    stopListening();
     if (pendingFound.current) {
       window.speechSynthesis?.cancel();
       pendingFound.current({ ans: v, text: "" });
@@ -273,6 +362,7 @@ export default function Talk() {
   };
 
   const answer = (v: boolean) => {
+    stopListening();
     if (pendingAnswer.current) {
       window.speechSynthesis?.cancel();
       pendingAnswer.current({ ans: v, text: "" });
@@ -280,6 +370,7 @@ export default function Talk() {
   };
 
   const reset = () => {
+    setSavedFound(null);
     setStage("idle");
     setSaid("");
     setHeard("");
@@ -303,6 +394,7 @@ export default function Talk() {
           {currentPlace && <div className="place">{currentPlace.name}</div>}
           <div className="said">{said}</div>
           <div className={`mic ${stage === "listening" ? "on" : ""}`}>🎤</div>
+          {waiting && <div className="wait-note">戻ったら「あった」「なかった」と教えてください</div>}
           <div className="heard">{heard}</div>
           {showButtons && buttonKind === "yesno" && (
             <div className="answer-buttons">
@@ -316,8 +408,23 @@ export default function Talk() {
               <button className="big-button no" onClick={() => answerFound("not")}>なかった</button>
             </div>
           )}
+          {showButtons && buttonKind === "found" && (
+            <button className="big-button undo" onClick={() => answerFound("undo")}>さっきの取り消し</button>
+          )}
           {checked.length > 0 && (
             <div className="checked muted">見た場所: {checked.join("、")}</div>
+          )}
+          {stage === "done" && !running && savedFound && (
+            <button
+              className="big-button undo"
+              onClick={() => {
+                updateLatestFound(undefined);
+                setSavedFound(null);
+                speak("記録を取り消しました。");
+              }}
+            >
+              見つかった場所の記録を取り消す
+            </button>
           )}
           {stage === "done" && !running && (
             <button className="big-button" style={{ minHeight: 80, fontSize: 28 }} onClick={reset}>

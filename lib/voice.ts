@@ -32,6 +32,17 @@ export function speak(text: string, rate = 0.85): Promise<void> {
 
 export type ListenResult = { text: string; error?: string };
 
+let currentRec: { stop: () => void } | null = null;
+
+// ボタンで答えたときなど、聞き取りを途中で止める（読み上げを拾わないように）
+export function stopListening() {
+  try {
+    currentRec?.stop();
+  } catch {
+    /* すでに止まっている */
+  }
+}
+
 // 「〜けど」「〜て」など、話の途中で終わっていそうなら長めに待つ
 const UNFINISHED = /(けど|けれど|が|て|で|から|ので|し|と|は|を|に|ね|、|えー|あの|えっと)$/;
 
@@ -48,6 +59,7 @@ export function listen(
     const Ctor = w.SpeechRecognition || w.webkitSpeechRecognition;
     if (!Ctor) return resolve({ text: "", error: "unsupported" });
     const rec = new Ctor();
+    currentRec = rec;
     rec.lang = "ja-JP";
     rec.interimResults = true;
     rec.continuous = true;
@@ -68,6 +80,7 @@ export function listen(
       error = e.error ?? "unknown";
     };
     rec.onend = () => {
+      if (currentRec === rec) currentRec = null;
       clearTimeout(max);
       if (silence) clearTimeout(silence);
       resolve({ text: text.trim(), error });

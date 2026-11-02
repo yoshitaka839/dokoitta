@@ -15,6 +15,7 @@ export type Clue = { placeId: string; reason: string; by: "spoken" | "settings" 
 // 場所の呼び方のゆれ（「居間のテーブル」→「居間」「テーブル」も同じ場所として聞き取る）
 const GENERIC = new Set(["前", "中", "上", "下", "横", "そば", "まわり", "周り"]);
 export function aliases(p: Place): string[] {
+  if (p.body) return ["頭", "首", "ポケット"];
   const parts = p.name.split("の").filter((x) => x.length >= 2 && !GENERIC.has(x));
   return [...new Set([p.name, ...parts])];
 }
@@ -90,12 +91,15 @@ export function moveToFront(queue: Step[], rest: Step[], clue: Clue): { queue: S
   };
 }
 
-// 各場所の問いかけの文
-export function question(opts: { step: Step; index: number; afterBody: boolean }): string {
+// 各場所の問いかけの文。一度に言うのは一か所だけ、説明は短く
+export function question(opts: { step: Step; index: number; afterBody: boolean; explain: boolean }): string {
   const parts: string[] = [];
   if (opts.afterBody) parts.push("体のまわりにはなかったですね。");
   if (opts.step.reason) parts.push(`${opts.step.reason}。`);
   const lead = opts.index === 0 && !opts.step.reason && !opts.step.place.body ? "まず、" : "";
-  parts.push(`${lead}${opts.step.place.action}。ありましたか？`);
+  parts.push(`${lead}${opts.step.place.action}。`);
+  if (opts.step.place.body) parts.push("あったか、なかったか教えてください。");
+  else if (opts.explain) parts.push("確かめてきて、戻ったら「あった」か「なかった」と教えてください。");
+  else parts.push("戻ったら教えてください。");
   return parts.join("");
 }

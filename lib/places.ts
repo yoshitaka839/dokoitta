@@ -35,12 +35,12 @@ export const BODY_PLACES: Place[] = [
 ];
 
 export const SAMPLE_HOME_PLACES: Place[] = [
-  { id: "living_table", name: "居間のテーブル", action: "居間のテーブルの上と、新聞の下を見てください", base: 60, bands: { morning: 15, noon: 10 }, main: true },
-  { id: "tv_side", name: "テレビのそば", action: "テレビの前と、リモコンのあたりを見てください", base: 50, bands: { evening: 15, night: 10 }, main: true },
-  { id: "sofa", name: "ソファ", action: "ソファの上と、すき間を見てください", base: 45, bands: { noon: 10, evening: 10 }, main: true },
-  { id: "washroom", name: "洗面所", action: "洗面台のまわりを見てください", base: 45, bands: { morning: 20, night: 15 }, main: true },
-  { id: "bedside", name: "寝室の枕元", action: "枕元と、ふとんのまわりを見てください", base: 40, bands: { morning: 20, night: 20 } },
-  { id: "kitchen", name: "台所", action: "台所のテーブルと、流しのまわりを見てください", base: 35, bands: { morning: 10, noon: 15, evening: 10 } },
+  { id: "living_table", name: "居間のテーブル", action: "居間のテーブルの上を見てください", base: 60, bands: { morning: 15, noon: 10 }, main: true },
+  { id: "tv_side", name: "テレビのそば", action: "テレビの前を見てください", base: 50, bands: { evening: 15, night: 10 }, main: true },
+  { id: "sofa", name: "ソファ", action: "ソファの上を見てください", base: 45, bands: { noon: 10, evening: 10 }, main: true },
+  { id: "washroom", name: "洗面所", action: "洗面台の上を見てください", base: 45, bands: { morning: 20, night: 15 }, main: true },
+  { id: "bedside", name: "寝室の枕元", action: "枕元を見てください", base: 40, bands: { morning: 20, night: 20 } },
+  { id: "kitchen", name: "台所", action: "台所のテーブルの上を見てください", base: 35, bands: { morning: 10, noon: 15, evening: 10 } },
   { id: "toilet", name: "トイレ", action: "トイレの棚の上を見てください", base: 30 },
   { id: "entrance", name: "玄関", action: "玄関の棚の上を見てください", base: 25, bands: { noon: 10 } },
 ];

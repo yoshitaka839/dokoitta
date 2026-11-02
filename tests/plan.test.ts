@@ -22,10 +22,12 @@ const names = (steps: { place: { name: string } }[]) => steps.map((s) => s.place
   assert.deepEqual(names(p.first), ["頭の上・首元・ポケット", "物置の棚", "居間のテーブル", "台所", "ソファ"]);
   assert.deepEqual(names(p.rest), ["玄関", "寝室"]);
   assert.equal(
-    question({ step: p.first[1], index: 1, afterBody: true }),
-    "体のまわりにはなかったですね。16時ごろなので、物置の棚かもしれません。物置の棚の上を見てください。ありましたか？",
+    question({ step: p.first[1], index: 1, afterBody: true, explain: true }),
+    "体のまわりにはなかったですね。16時ごろなので、物置の棚かもしれません。物置の棚の上を見てください。確かめてきて、戻ったら「あった」か「なかった」と教えてください。",
   );
-  assert.ok(question({ step: p.first[0], index: 0, afterBody: false }).startsWith("念のため、頭の上や首元、ポケット"));
+  assert.ok(question({ step: p.first[0], index: 0, afterBody: false, explain: false }).startsWith("念のため、頭の上や首元、ポケット"));
+  // 2か所目からは説明を短く
+  assert.ok(question({ step: p.first[2], index: 2, afterBody: false, explain: false }).endsWith("戻ったら教えてください。"));
 }
 
 // 時刻から外れると、物置の棚は理由なしで上から順
@@ -80,5 +82,7 @@ assert.equal(clueFromRerank({ order: ["zz", "h3"], reason: "料理をしてい�
 assert.equal(foundAnswer("はい"), "unsure");
 assert.equal(foundAnswer("あった"), "found");
 assert.equal(foundAnswer("なかった"), "not");
+// 取り消し・言い直し
+for (const t of ["さっきの取り消し", "違う", "間違えた", "今のなし"]) assert.equal(foundAnswer(t), "undo", t);
 
 console.log("ok: plan tests passed");

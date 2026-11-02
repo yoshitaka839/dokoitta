@@ -23,13 +23,16 @@ export function yesNo(text: string): boolean | null {
 }
 
 // 見つかったかどうか。「はい」「うん」だけは返事のつもりのことがあるので "unsure" にして聞き直す
-const NOT_FOUND = ["なかった", "ない", "無い", "ありません", "見つからない", "みつからない", "違う", "ちがう", "いいえ"];
+const NOT_FOUND = ["なかった", "ない", "無い", "ありません", "見つからない", "みつからない", "いいえ"];
+// 「さっきの取り消し」「違う」「間違えた」などは、ひとつ前の答えを直したいという合図
+const UNDO = ["取り消", "とりけし", "取消", "間違", "まちが", "違う", "ちがう", "やり直", "やりなお", "今のなし", "いまのなし"];
 const FOUND = ["あった", "有った", "あります", "ありました", "見つけた", "見つかった", "みつけた", "みつかった", "これだ", "ここだ"];
 const PLAIN_YES = ["はい", "うん", "ええ", "そう"];
 
-export function foundAnswer(text: string): "found" | "not" | "unsure" | null {
+export function foundAnswer(text: string): "found" | "not" | "unsure" | "undo" | null {
   const t = text.replace(/\s+/g, "");
   if (!t) return null;
+  if (UNDO.some((w) => t.includes(w))) return "undo";
   if (NOT_FOUND.some((w) => t.includes(w))) return "not";
   if (FOUND.some((w) => t.includes(w))) return "found";
   if (PLAIN_YES.some((w) => t.includes(w))) return "unsure";

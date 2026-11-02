@@ -54,7 +54,7 @@ export default function Settings() {
 
       <h2>1. 家の場所</h2>
       <p className="muted">
-        1行に1か所、「名前 | 確かめ方 | 怪しい時刻」。上から{MAIN_COUNT}か所が「よく置く場所」で、最初はここだけ確かめます。
+        1行に1か所、「名前 | 確かめ方 | 怪しい時刻」。確かめ方は「居間のテーブルの上を見てください」のように一か所だけにします。上から{MAIN_COUNT}か所が「よく置く場所」で、最初はここだけ確かめます。
         怪しい時刻（任意）は 16 や 7,21 のように書きます。頭の上・首元・ポケットは書かなくて大丈夫です。
       </p>
       <textarea value={text} onChange={(e) => setText(e.target.value)} rows={8} style={area} />
@@ -80,6 +80,9 @@ export default function Settings() {
             <li key={p.id}>
               {p.name}
               {p.hours ? `（${p.hours.join("時・")}時ごろは理由をそえて聞く）` : ""}
+              {/と、|、と|および/.test(p.action) && (
+                <span style={{ color: "#b5482f" }}>　※確かめ方は一か所にしぼると答えやすくなります</span>
+              )}
             </li>
           ))}
         </ol>
