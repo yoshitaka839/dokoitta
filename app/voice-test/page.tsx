@@ -147,7 +147,7 @@ export default function VoiceTest() {
         onClick={listening ? stop : start}
         disabled={!supported?.stt}
       >
-        {listening ? "聞いています…（押すと止まる）" : "🎤 話す"}
+        {listening ? "「眼鏡、どこいった？」" : "🎤 話す"}
       </button>
       <div className="card">
         <div className="muted">聞き取った言葉</div>
