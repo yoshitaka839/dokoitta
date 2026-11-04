@@ -1,29 +1,30 @@
 "use client";
 
-// アプリの方から声で話しかけて、眼鏡を一か所ずつ一緒に確かめるページ。
-// 流れ:
-//  さわる →「どうしましたか？」→ 眼鏡の話か確かめる
-//  → 候補の順番をプログラムで決め、本人の話に手がかりがあれば Claude が候補の中で並べ替える（①）
-//  → 手がかりがなければ体まわり（頭の上・首元・ポケット）から順に確かめる（②）
-//  → 4か所ごとに「続けますか？」。休むなら見た場所を残す（③）
+// 本人が使う画面。仕様書 docs/SPEC.md の 4章（流れ）・6章（声）・7章（画面）・15章（言葉）。
+//  本人がアイコンから開く → 押せそうなボタン1つ「ここを押すと／さがしはじめます」
+//  → 押したら質問せず、すぐ1か所目: 机の気づきにくい場所（2か所）→ 体のまわり → 置いた場所（日課・記録）
+//  →「なかった」なら短く返してすぐ次へ。「あった」なら見た目を確かめて「ありましたね。覚えておきます。」
+//  → あきらめ・返事なしは「わかりました。次に見るなら、〜です。」で終え、家族ページに残す
+// 言葉は短く。画面には場所の名前だけを大きく出し、アプリが話す文は出さない（読み上げると答えに聞こえるため）。
 // 「必ず見つかる」とは言わない。
 
 import { useEffect, useRef, useState } from "react";
-import { beep, canListen, listen, prepareBeep, speak, stopListening } from "@/lib/voice";
-import { answerWhileWaiting, echoOf, foundAnswer, isQuickAnswer, startsWithAck, understand, yesNo, type FoundKind } from "@/lib/normalize";
+import { beep, canListen, keepAwake, listen, prepareBeep, speak, stopListening } from "@/lib/voice";
+import { answerWhileWaiting, echoOf, foundAnswer, looksLikeReadAloud, quickWaitMs, yesNo, type FoundKind } from "@/lib/normalize";
 import { BODY_CHECK, getActivities, getHomePlaces, usingSamplePlaces, type Place } from "@/lib/places";
 import { effectiveTime, loadTryTime } from "@/lib/trytime";
 import { getRoutineText, parseRoutineText, withRoutinePlaces } from "@/lib/routine";
 import { clueFromRerank, hasClue, initialPlan, matchActivity, matchSpokenPlace, moveToFront, question, type Clue, type Step } from "@/lib/plan";
 import { foundCounts, foundHours, saveRecord, updateLatestFound, type SearchRecord } from "@/lib/history";
+import { getDeskSpots, loadProfile, lookQuestion } from "@/lib/profile";
+import { P } from "@/lib/phrases";
 
-type Stage = "idle" | "speaking" | "listening" | "searching" | "done";
-type Answer = { ans: boolean | null; text: string };
+type Stage = "idle" | "pressed" | "searching" | "done";
 type FoundAns = { ans: FoundKind | null; text: string };
 
-const WAIT_MS = 3 * 60 * 1000; // 探しに行っている間に待つ時間（短い沈黙は失敗扱いにしない）
-const NOD_MS = 20 * 1000; // 「確かめてきて」のすぐ後の「はい」は、うなずきとして聞き流す
-
+const NEAR_WAIT_MS = 30 * 1000; // 机・体のまわりなど手元の場所
+const FAR_WAIT_MS = 3 * 60 * 1000; // 離れた場所（歩いて確かめに行く）
+const LOOK_WAIT_MS = 10 * 1000; // 見た目の確かめ（返事がなければ見つかった扱い）
 
 // 練習モード: /talk?practice=1 か ?at=… のとき、または /settings で「試すときの時刻」を指定しているとき。
 // 記録は「練習」として分け、よく見つかる場所の回数に数えない
@@ -36,26 +37,26 @@ function urlParams(): URLSearchParams | null {
 }
 function isPractice(): boolean {
   const q = urlParams();
-  return !!q && (q.has("practice") || q.has("at")) || loadTryTime() !== null;
+  return (!!q && (q.has("practice") || q.has("at"))) || loadTryTime() !== null;
 }
 
 // 順番を決める時刻: ?at=15:50 → 設定の「試すときの時刻」 → 今の時刻
 function currentTime(): Date {
   return effectiveTime(urlParams()?.get("at") ?? null, loadTryTime()).date;
-} // この数を確かめるごとに、続けるか休むか聞く
+}
 
 async function rerank(utterance: string, candidates: Place[], hour = new Date().getHours()) {
   const ids = candidates.map((p) => p.id);
   try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 2000); // 2秒を超えたらプログラムの順のまま
     const r = await fetch("/api/rerank", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        utterance,
-        candidates: candidates.map((p) => ({ id: p.id, name: p.name })),
-        hour,
-      }),
+      body: JSON.stringify({ utterance, candidates: candidates.map((p) => ({ id: p.id, name: p.name })), hour }),
+      signal: ctrl.signal,
     });
+    clearTimeout(timer);
     if (!r.ok) throw new Error(String(r.status));
     return (await r.json()) as { order: string[]; reason: string; source: "claude" | "program"; note?: string; ms: number };
   } catch (e) {
@@ -65,444 +66,311 @@ async function rerank(utterance: string, candidates: Place[], hour = new Date().
 
 export default function Talk() {
   const [stage, setStage] = useState<Stage>("idle");
-  const [said, setSaid] = useState("");
-  const [heard, setHeard] = useState("");
-  const [heardOk, setHeardOk] = useState(false); // 答えとして受け取った（緑の「聞こえました」）
-  const [showButtons, setShowButtons] = useState(false);
-  const [buttonKind, setButtonKind] = useState<"yesno" | "found">("yesno");
-  const [current, setCurrent] = useState<string | null>(null);
-  const [checked, setChecked] = useState<string[]>([]);
-  const [log, setLog] = useState<string[]>([]);
-  const [running, setRunning] = useState(false);
-  const [waiting, setWaiting] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [heardFlash, setHeardFlash] = useState(false); // 答えを受け取った瞬間の緑の合図
+  const [buttons, setButtons] = useState<"found" | "yesno" | null>(null);
+  const [current, setCurrent] = useState<Place | null>(null);
+  const [endText, setEndText] = useState<string[]>([]); // 終わりの画面に大きく出す言葉
   const [savedFound, setSavedFound] = useState<string | null>(null);
-  const pendingAnswer = useRef<((v: Answer) => void) | null>(null);
-  const pendingFound = useRef<((v: FoundAns) => void) | null>(null);
+  const [practice, setPractice] = useState(false);
+  const [tryAt, setTryAt] = useState<string | null>(null);
+  const pending = useRef<((v: FoundAns) => void) | null>(null);
+  const saidSoFar = useRef<string[]>([]); // この回にアプリが話した文（読み上げを答えにしないため）
   const placesRef = useRef<Place[]>([]);
-  const placeById = (id: string) => placesRef.current.find((p) => p.id === id);
-
-  const addLog = (s: string) => setLog((l) => [`${new Date().toLocaleTimeString("ja-JP")} ${s}`, ...l].slice(0, 60));
+  const running = useRef(false);
+  const toldNoMic = useRef(false);
 
   useEffect(() => {
-    if (!canListen()) addLog("この端末では聞き取りが使えません（ボタンで答えられます）");
+    setPractice(isPractice());
+    setTryAt(urlParams()?.get("at") ?? loadTryTime()?.time ?? null);
   }, []);
 
-  // 聞こえた答えを次の言葉の頭で声に出して返す（「なかったんですね。」など）
-  const ack = useRef("");
+  const log = (s: string) => console.log(`[どこいった] ${s}`);
+
+  // 話している間は聞き取らない（自分の声を答えにしない）
   const say = async (text: string) => {
-    const a = ack.current;
-    ack.current = "";
-    const t = a && !startsWithAck(text) ? a + text : text;
-    if (!t) return;
-    setSaid(t);
-    setStage("speaking");
-    await speak(t);
-  };
-  // 次の言葉まで間があくとき（Claude に聞く間など）は、先に返事だけ言う
-  const flushAck = async () => {
-    if (ack.current) await say("");
-  };
-
-  // 答えを受け取ったら、すぐ音と表示で知らせる（間があくと、何度も言い直してしまうため）
-  // 父は画面の字を見ないので、音に加えて、声に出した答えをそのまま声で返す（ボタンのときは返さない）
-  const gotIt = (text: string, ans: boolean | FoundKind | null) => {
-    if (text) {
-      setHeard(text);
-      ack.current = echoOf(ans);
-    }
-    setHeardOk(true);
-    beep();
-  };
-
-  const hear = async (opts: { quick?: boolean } = {}): Promise<string> => {
-    setHeard("");
-    setHeardOk(false);
-    setStage("listening");
-    const r = await listen({ onPartial: setHeard, quickCut: opts.quick ? isQuickAnswer : undefined });
-    addLog(`聞き取り: 「${r.text}」${r.error ? ` エラー=${r.error}` : ""}`);
-    return r.text;
-  };
-
-  // 質問して、はい／いいえを声かボタンの早い方で受け取る。どちらでもない話は text に入る
-  const ask = async (question: string, opts: { glassesMeansYes?: boolean } = {}): Promise<Answer> => {
-    await say(question);
-    setButtonKind("yesno");
-    setShowButtons(true);
-    const byButton = new Promise<Answer>((res) => (pendingAnswer.current = res));
-    const byVoice = hear({ quick: true }).then((text) => {
-      if (opts.glassesMeansYes && understand(text).glasses) return { ans: true, text };
-      return { ans: yesNo(text), text };
-    });
-    const a = await Promise.race([byButton, byVoice]);
-    if (a.ans !== null) gotIt(a.text, a.ans);
+    if (!text) return;
     stopListening();
-    pendingAnswer.current = null;
-    setShowButtons(false);
-    return a;
+    setListening(false);
+    saidSoFar.current = [text, ...saidSoFar.current].slice(0, 20);
+    await speak(text);
   };
 
-  // 探しに行ってもらい、「あった／なかった／取り消し／休む」を待つ。
-  // 歩きながらのつぶやき・テレビの声・黙っている間は聞き流して待ち続ける（WAIT_MS まで）。
-  // 画面にも、答えと分かった言葉だけを出す。ボタンでも答えられる
-  const waitFound = async (question: string, opts: { walking?: boolean } = {}): Promise<FoundAns> => {
-    const walking = opts.walking ?? true;
-    await say(question);
-    setButtonKind("found");
-    setShowButtons(true);
-    setWaiting(true);
-    const askedAt = Date.now();
+  const flash = () => {
+    beep();
+    setHeardFlash(true);
+    setTimeout(() => setHeardFlash(false), 900);
+  };
+
+  // 答えを待つ。声かボタンの早い方。黙っている間・つぶやき・テレビの声・読み上げは聞き流す。
+  // waitMs 過ぎたら一度だけ「どうでしたか。」と言い、同じだけ待つ。それでもなければ ans: null
+  const waitAnswer = async (opts: { waitMs: number; kind: "found" | "yesno"; reprompt?: boolean; screenWords: string[] }): Promise<FoundAns> => {
+    setButtons(opts.kind);
     let done = false;
-    const byButton = new Promise<FoundAns>((res) => (pendingFound.current = res));
+    const byButton = new Promise<FoundAns>((res) => (pending.current = res));
     const byVoice = (async (): Promise<FoundAns> => {
-      for (let round = 0; round < 2 && !done; round++) {
-        const until = Date.now() + WAIT_MS;
+      const rounds = opts.reprompt === false ? 1 : 2;
+      for (let round = 0; round < rounds && !done; round++) {
+        const until = Date.now() + opts.waitMs;
         while (!done && Date.now() < until) {
-          setHeard("");
-          setHeardOk(false);
-          setStage("listening");
-          const r = await listen({
-            onPartial: (t) => setHeard(answerWhileWaiting(t) ? t : ""),
-            quickCut: (t) => answerWhileWaiting(t) !== null && isQuickAnswer(t),
-            maxMs: 30000,
-            silenceMs: 2500,
-          });
+          if (!canListen()) return await byButton;
+          setListening(true);
+          const r = await listen({ maxMs: Math.min(30000, Math.max(3000, until - Date.now())), silenceMs: 2500, quickWait: quickWaitMs });
+          setListening(false);
           if (done) break;
-          if (r.text) addLog(`聞き取り: 「${r.text}」`);
-          const ans = answerWhileWaiting(r.text);
-          if (ans === "unsure" && walking && Date.now() - askedAt < NOD_MS) {
-            addLog("（歩き出してすぐの「はい」はうなずきとして聞き流し）");
+          if (r.error === "not-allowed" || r.error === "service-not-allowed") {
+            if (!toldNoMic.current) {
+              toldNoMic.current = true;
+              await say(P.noMic);
+            }
+            return await byButton;
+          }
+          if (!r.text) continue;
+          log(`聞き取り「${r.text}」`);
+          // アプリが話した文や画面の字を読み上げたような言葉は、答えにしない
+          if (looksLikeReadAloud(r.text, [...saidSoFar.current, P.explain, ...opts.screenWords])) {
+            log("（読み上げとして聞き流し）");
             continue;
           }
+          if (opts.kind === "yesno") {
+            const yn = yesNo(r.text);
+            if (yn !== null) return { ans: yn ? "found" : "not", text: r.text };
+            continue;
+          }
+          const ans = answerWhileWaiting(r.text);
+          if (ans === "unsure") continue; // 「はい」だけは相づちのことがある
           if (ans) return { ans, text: r.text };
           // 「なかった。そういえば本を読んでた」のように、答えと手がかりが一緒の話
           if (r.text.length <= 40 && foundAnswer(r.text) === "not" && hasClue(r.text)) return { ans: "not", text: r.text };
-          if (r.error === "not-allowed" || r.error === "service-not-allowed") return await byButton;
+          // 場所や、していたことの話（手がかり）
+          if (r.text.length <= 40 && hasClue(r.text)) return { ans: null, text: r.text };
         }
-        if (!done && round === 0) await say("ゆっくりで大丈夫です。あったか、なかったか、教えてください。");
+        if (!done && round === 0 && rounds > 1) await say(P.reprompt);
       }
       return { ans: null, text: "" };
     })();
     const a = await Promise.race([byButton, byVoice]);
     done = true;
     stopListening();
-    if (a.ans) gotIt(a.text, a.ans);
-    pendingFound.current = null;
-    setShowButtons(false);
-    setWaiting(false);
+    setListening(false);
+    pending.current = null;
+    setButtons(null);
+    if (a.ans) flash();
     return a;
   };
 
-  // 見つかった場所を保存する前に「〜ですね？」と短く確かめる。違えば言い直してもらう
-  const confirmFound = async (place: Place): Promise<string | null> => {
-    let candidate: Place | null = place;
-    for (let i = 0; i < 2 && candidate; i++) {
-      const c = await ask(`${candidate.name}ですね？`);
-      if (c.ans === true) return candidate.name;
-      const spoken = c.text ? matchSpokenPlace(c.text, placesRef.current) : null;
-      if (spoken) {
-        candidate = placeById(spoken.placeId) ?? null;
-        continue;
-      }
-      await say("どこにありましたか？");
-      const where = await hear();
-      const m = where ? matchSpokenPlace(where, placesRef.current) : null;
-      candidate = m ? placeById(m.placeId) ?? null : null;
-    }
-    return null;
+  const press = (v: FoundKind) => {
+    stopListening();
+    window.speechSynthesis?.cancel();
+    pending.current?.({ ans: v, text: "" });
   };
 
-  const search = async (utterances: string[]) => {
-    const rec: SearchRecord = {
-      at: new Date().toISOString(),
-      utterances: [...utterances],
-      checked: [],
-      ended: "stopped",
-      practice: isPractice() || undefined,
-    };
-    setStage("searching");
-    setChecked([]);
-
-    // 一日の流れ（日課）に出てくる場所も候補に入れる
+  const search = async () => {
+    saidSoFar.current = [];
+    const rec: SearchRecord = { at: new Date().toISOString(), utterances: [], checked: [], ended: "searching", practice: isPractice() || undefined };
+    const profile = loadProfile();
+    const desk = getDeskSpots();
     const baseHome = getHomePlaces();
     const routine = parseRoutineText(getRoutineText(usingSamplePlaces()), baseHome);
     const home = withRoutinePlaces(baseHome, routine);
-    placesRef.current = [BODY_CHECK, ...home];
+    placesRef.current = [...desk, BODY_CHECK, ...home];
     const acts = getActivities();
     const now = currentTime();
-    const found = foundCounts();
-    const hours = foundHours();
-    const said = utterances.join("。");
+    const plan = initialPlan({ home, found: foundCounts(), hours: foundHours(), now, routine, desk });
+    let queue: Step[] = [...plan.first, ...plan.rest];
+    log(`順番: ${queue.map((s) => s.place.name).join("、")}`);
+    saveRecord(rec);
 
-    // 手がかりの場所: まず設定の「していたこと → 場所」、なければ Claude に候補の中から選んでもらう
-    // 優先順: 本人がその場で言った場所 → 設定のつながり → Claude
+    // 手がかりの場所: 本人がその場で言った場所 → 設定のつながり → Claude（候補の中だけ）
     const findClue = async (text: string, candidates: Place[]): Promise<Clue | null> => {
       const spoken = matchSpokenPlace(text, candidates);
-      if (spoken) {
-        addLog(`手がかり（本人の話）: ${placeById(spoken.placeId)?.name}`);
-        return spoken;
-      }
+      if (spoken) return spoken;
       const bySettings = matchActivity(text, acts, candidates);
-      if (bySettings) {
-        addLog(`手がかり（設定）: ${placeById(bySettings.placeId)?.name}`);
-        return bySettings;
-      }
+      if (bySettings) return bySettings;
       if (!hasClue(text) || candidates.length < 2) return null;
       const rr = await rerank(text, candidates, now.getHours());
-      const c = clueFromRerank(rr, candidates);
-      addLog(`手がかり（Claude ${rr.source} ${rr.ms}ms${rr.note ? ` / ${rr.note}` : ""}）: ${c ? placeById(c.placeId)?.name : "なし"}`);
-      return c;
+      log(`Claude ${rr.source} ${rr.ms}ms ${rr.note ?? ""}`);
+      if (rr.source === "claude") rec.rerankSource = "claude";
+      return clueFromRerank(rr, candidates);
     };
 
-    // 返事を待つ間に「一緒に探しましょう」を読み上げる
-    const pendingClue = findClue(said, home);
-    await say("眼鏡を探しているんですね。一緒に探しましょう。");
-    const clue = await pendingClue;
-    rec.rerankSource = clue?.by === "claude" ? "claude" : "program";
-    const plan = initialPlan({ home, found, now, clue, hours, routine });
-    let queue: Step[] = plan.first;
-    let rest: Step[] = plan.rest;
-    addLog(`順番: ${queue.map((s) => s.place.name).join("、")} ／ 残り: ${rest.map((s) => s.place.name).join("、")}`);
+    const finish = async (ended: SearchRecord["ended"], words: string, screen: string[], next?: Step) => {
+      rec.ended = ended;
+      if (next) rec.nextPlace = next.place.name;
+      saveRecord(rec);
+      setCurrent(null);
+      setEndText(screen);
+      setStage("done");
+      await say(words);
+    };
 
-    let index = 0;
-    let prevBody = false;
-    let inRest = false;
-    let toldHowToAnswer = false;
-    let last: Step | null = null; // ひとつ前に「なかった」と答えた場所（取り消し用）
-    while (queue.length > 0 || rest.length > 0) {
-      if (queue.length === 0) {
-        // よく置く場所にはなかった → 聞き返さずに、次の候補を続けて出す（自分で考えるほうが大変、という父の声から）
-        if (!inRest) await say("よく置く場所にはなかったですね。ほかの場所を言いますね。休むときは「休む」と言ってください。");
-        inRest = true;
-        queue = rest.splice(0, 4);
-      }
+    let explained = false;
+    let prefix = ""; // 「なかったんですね。」など、次の言葉の頭につける返事
+    let last: Step | null = null;
+    while (queue.length > 0) {
       const step = queue.shift()!;
-      const place = step.place;
-      setCurrent(place.id);
-      const q = question({ step, index, afterBody: prevBody, explain: !toldHowToAnswer && !place.body });
-      if (!place.body) toldHowToAnswer = true;
-      let a = await waitFound(q);
-      index++;
+      setCurrent(step.place);
+      const q = question({ step, explain: !explained });
+      explained = true;
+      await say(prefix + q);
+      prefix = "";
+      const near = !!step.place.near;
+      let a = await waitAnswer({ waitMs: near ? NEAR_WAIT_MS : FAR_WAIT_MS, kind: "found", screenWords: [step.place.name] });
 
-      // 「さっきの取り消し」「違う」→ ひとつ前の場所をもう一度
       if (a.ans === "undo") {
+        // ひとつ前の場所の答えを取り消して、もう一度
         queue.unshift(step);
         if (last) {
           rec.checked.pop();
-          setChecked([...rec.checked]);
           queue.unshift(last);
-          await say(`わかりました。さっきの${last.place.name}を、もう一度聞きますね。`);
           last = null;
-        } else {
-          await say("わかりました。もう一度聞きますね。");
         }
-        prevBody = false;
+        await say(P.undo);
         continue;
       }
-      prevBody = !!place.body;
 
-      // 「休む」「もういい」→ 見た場所を残して休む
-      if (a.ans === "rest") {
-        rec.checked.push(place.name);
-        rec.ended = "rest";
-        saveRecord(rec);
-        setStage("done");
-        setCurrent(null);
-        await say("わかりました。見た場所は残しておきます。少し休みましょう。また呼んでくださいね。");
+      if (a.ans === "rest" || (a.ans === null && !a.text)) {
+        rec.checked.push(step.place.name);
+        const next = queue[0];
+        await finish(a.ans === "rest" ? "rest" : "no-reply", P.giveUp(next?.place.name ?? null), next ? ["次に見るなら", next.place.name] : ["また、いつでも"], next);
         return;
-      }
-
-      // 「はい」「うん」だけのときは、返事のつもりかもしれないので確かめる
-      if (a.ans === "unsure") {
-        const c = await waitFound("眼鏡、見つかりましたか？", { walking: false });
-        a = c.ans === "unsure" ? { ans: "found", text: c.text } : c;
       }
 
       if (a.ans === "found") {
-        const at = await confirmFound(place);
-        rec.checked.push(place.name);
-        setChecked([...rec.checked]);
-        rec.foundAt = at ?? undefined;
-        rec.ended = "found";
-        saveRecord(rec);
-        setSavedFound(at);
-        setStage("done");
-        setCurrent(null);
-        await say(
-          at
-            ? `あったね。よかった。${at}でしたね。覚えておきます。`
-            : "あったね。よかった。場所は記録しないでおきますね。",
-        );
-        return;
-      }
-
-      if (a.ans === null && !a.text) {
-        // 長いあいだ返事がなかった
-        rec.checked.push(place.name);
-        rec.ended = "rest";
-        saveRecord(rec);
-        setStage("done");
-        setCurrent(null);
-        await say("少し休みましょうか。見た場所は残しておきます。また呼んでくださいね。");
-        return;
-      }
-
-      rec.checked.push(place.name);
-      setChecked([...rec.checked]);
-      last = step;
-
-      // 「なかった。そういえば本を読んでた」のような話は手がかりとして、その場所を先に
-      if (a.text && (a.ans === null || (a.ans === "not" && hasClue(a.text)))) {
-        rec.utterances.push(a.text);
-        const remaining = [...queue, ...rest].map((s) => s.place).filter((p) => !p.body);
-        await flushAck();
-        const c = await findClue(a.text, remaining);
-        if (c) {
-          const moved = moveToFront(queue, rest, c);
-          queue = moved.queue;
-          rest = moved.rest;
-          prevBody = false;
-        } else if (a.ans === null) {
-          await say("なるほど。");
+        // 「あった、ポケットに」のように場所も言ったら、その場所で記録する
+        const spoken = a.text ? matchSpokenPlace(a.text, placesRef.current) : null;
+        const at = spoken ? placesRef.current.find((p) => p.id === spoken.placeId)?.name ?? step.place.name : step.place.name;
+        if (profile.lookCheck) {
+          await say(lookQuestion(profile));
+          const c = await waitAnswer({ waitMs: LOOK_WAIT_MS, kind: "yesno", reprompt: false, screenWords: [] });
+          if (c.ans === "not") {
+            // 古い方だった。記録して、次の場所へ
+            (rec.oldFound ??= []).push(at);
+            rec.checked.push(step.place.name);
+            last = step;
+            prefix = P.old;
+            continue;
+          }
+          if (c.ans === null) rec.lookNoReply = true;
         }
+        rec.checked.push(step.place.name);
+        rec.foundAt = at;
+        setSavedFound(at);
+        await finish("found", P.found, ["ありました", at]);
+        return;
       }
+
+      // なかった、または手がかりの話
+      rec.checked.push(step.place.name);
+      last = step;
+      if (a.ans === "not") prefix = echoOf("not");
+      // 「なかった」だけなら手がかりではない。「なかった。そういえば本を読んでた」のように話が続いたときだけ
+      const extra = a.text.replace(/なかった|無かった|ない|無い|ありません|見つからない|みつからない|いいえ/g, "");
+      if (a.text && (a.ans === null || hasClue(extra))) {
+        rec.utterances.push(a.text);
+        const c = await findClue(a.text, queue.map((s) => s.place).filter((p) => !p.body && !p.desk));
+        if (c) queue = moveToFront(queue, [], c).queue;
+      }
+      saveRecord(rec);
     }
-    rec.ended = "all-checked";
-    saveRecord(rec);
-    setStage("done");
-    setCurrent(null);
-    await say("思いつく場所は、ひととおり見ました。見た場所は残しておきます。少し休んで、また一緒に探しましょう。");
+    await finish("all-checked", P.allChecked, ["ひととおり", "見ました"]);
   };
 
   const begin = async () => {
-    if (running) return;
-    setRunning(true);
+    if (running.current) return;
+    running.current = true;
+    setStage("pressed"); // 押したらすぐ見た目が変わる
     prepareBeep();
+    beep();
+    const awake = await keepAwake(true);
+    log(awake ? "画面を消さない仕組み: オン" : "画面を消さない仕組み: 使えない");
     try {
-      await say("どうしましたか？");
-      const first = await hear();
-      if (understand(first).glasses) return await search([first]);
-
-      for (let i = 0; i < 2; i++) {
-        const a = await ask("眼鏡を探していますか？", { glassesMeansYes: true });
-        if (a.ans === true) return await search([first, a.text].filter(Boolean));
-        if (a.ans === false) {
-          setStage("done");
-          await say("わかりました。また呼んでくださいね。");
-          return;
-        }
-      }
-      setStage("idle");
-      await say("また呼んでくださいね。画面をさわると、もう一度聞きます。");
+      setStage("searching");
+      await search();
     } finally {
-      setRunning(false);
-    }
-  };
-
-  const answerFound = (v: "found" | "not" | "undo" | "rest") => {
-    stopListening();
-    if (pendingFound.current) {
-      window.speechSynthesis?.cancel();
-      pendingFound.current({ ans: v, text: "" });
-    }
-  };
-
-  const answer = (v: boolean) => {
-    stopListening();
-    if (pendingAnswer.current) {
-      window.speechSynthesis?.cancel();
-      pendingAnswer.current({ ans: v, text: "" });
+      await keepAwake(false);
+      running.current = false;
     }
   };
 
   const reset = () => {
     setSavedFound(null);
     setStage("idle");
-    setSaid("");
-    setHeard("");
-    setHeardOk(false);
     setCurrent(null);
-    setChecked([]);
+    setEndText([]);
   };
 
-  const currentPlace = current ? placeById(current) : null;
-  const [practice, setPractice] = useState(false);
-  const [tryAt, setTryAt] = useState<string | null>(null);
-  useEffect(() => {
-    setPractice(isPractice());
-    setTryAt(urlParams()?.get("at") ?? loadTryTime()?.time ?? null);
-  }, []);
-
   return (
-    <main className="talk-page">
-      {practice && (
-        <div className="muted" style={{ textAlign: "center", fontSize: 16 }}>
-          練習{tryAt ? `（${tryAt}として）` : ""}・記録は分けて残します
+    <main className={`talk-page ${stage === "idle" || stage === "pressed" ? "start" : ""}`}>
+      {practice && <div className="practice-tag">練習{tryAt ? ` ${tryAt}` : ""}</div>}
+
+      {(stage === "idle" || stage === "pressed") && (
+        <div className="start-wrap">
+          <button className={`start-button ${stage === "pressed" ? "pressed" : ""}`} onClick={begin}>
+            <span className="finger">👆</span>
+            <span className="line">ここを押すと</span>
+            <span className="line">{stage === "pressed" ? "はじめます" : "さがしはじめます"}</span>
+          </button>
         </div>
       )}
-      {stage === "idle" && !running ? (
-        <button className="touch-area" onClick={begin}>
-          さわってください
-        </button>
-      ) : (
+
+      {stage === "searching" && (
         <div className="talk">
           <div className="talk-top">
-          {currentPlace && <div className="place">{currentPlace.name}</div>}
-          <div className="said">{said}</div>
-          <div className={`mic ${stage === "listening" ? "on" : ""}`}>🎤</div>
-          {waiting && <div className="wait-note">戻ったら「あった」「なかった」と教えてください</div>}
-          {heard && (
-            <div className={`heard-box ${heardOk ? "ok" : ""}`}>
-              <div className="who">{heardOk ? "✓ 聞こえました" : "あなたの声："}</div>
-              <div className="heard">「{heard}」</div>
-            </div>
-          )}
+            <div className={`now-place ${heardFlash ? "flash" : ""}`}>{current?.name ?? ""}</div>
+            <div className={`mic ${listening ? "on" : ""} ${heardFlash ? "ok" : ""}`}>{heardFlash ? "✓" : "🎤"}</div>
           </div>
           <div className="talk-bottom">
-          {showButtons && buttonKind === "yesno" && (
-            <div className="answer-buttons">
-              <button className="big-button yes" onClick={() => answer(true)}>はい</button>
-              <button className="big-button no" onClick={() => answer(false)}>いいえ</button>
-            </div>
-          )}
-          {showButtons && buttonKind === "found" && (
-            <div className="answer-buttons">
-              <button className="big-button yes" onClick={() => answerFound("found")}>あった</button>
-              <button className="big-button no" onClick={() => answerFound("not")}>なかった</button>
-            </div>
-          )}
-          {showButtons && buttonKind === "found" && (
-            <div className="answer-buttons">
-              <button className="big-button undo" onClick={() => answerFound("undo")}>さっきの取り消し</button>
-              <button className="big-button undo" onClick={() => answerFound("rest")}>休む</button>
-            </div>
-          )}
-          {checked.length > 0 && (
-            <div className="checked muted">見た場所: {checked.join("、")}</div>
-          )}
-          {stage === "done" && !running && savedFound && (
-            <button
-              className="big-button undo"
-              onClick={() => {
-                updateLatestFound(undefined);
-                setSavedFound(null);
-                speak("記録を取り消しました。");
-              }}
-            >
-              見つかった場所の記録を取り消す
-            </button>
-          )}
-          {stage === "done" && !running && (
-            <button className="big-button" style={{ minHeight: 72, fontSize: 28, margin: 0 }} onClick={reset}>
-              はじめにもどる
-            </button>
-          )}
+            {buttons === "found" && (
+              <>
+                <div className="answer-buttons">
+                  <button className="big-button yes" onClick={() => press("found")}>あった</button>
+                  <button className="big-button no" onClick={() => press("not")}>なかった</button>
+                </div>
+                <div className="answer-buttons">
+                  <button className="big-button sub" onClick={() => press("undo")}>ひとつ前にもどる</button>
+                  <button className="big-button sub" onClick={() => press("rest")}>やめる</button>
+                </div>
+              </>
+            )}
+            {buttons === "yesno" && (
+              <div className="answer-buttons">
+                <button className="big-button yes" onClick={() => press("found")}>はい</button>
+                <button className="big-button no" onClick={() => press("not")}>いいえ</button>
+              </div>
+            )}
           </div>
         </div>
       )}
-      <details className="muted family-log">
-        <summary>記録（家族向け）</summary>
-        <div className="log">{log.join("\n")}</div>
-      </details>
+
+      {stage === "done" && (
+        <div className="talk">
+          <div className="talk-top">
+            {endText.map((t, i) => (
+              <div key={i} className={i === 0 ? "end-lead" : "now-place"}>
+                {t}
+              </div>
+            ))}
+          </div>
+          <div className="talk-bottom">
+            {savedFound && (
+              <button
+                className="big-button sub"
+                onClick={() => {
+                  updateLatestFound(undefined);
+                  setSavedFound(null);
+                  speak("記録を取り消しました。");
+                }}
+              >
+                記録を取り消す
+              </button>
+            )}
+            <button className="big-button" onClick={reset}>
+              はじめにもどる
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

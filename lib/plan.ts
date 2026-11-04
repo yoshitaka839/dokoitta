@@ -1,12 +1,8 @@
-// 確かめる順番と、各場所で最初に言う一言を決める（画面や声とは切り離した純粋な処理）。
-// 1. 会話に手がかりがあれば、その場所をいちばん先に（設定の「していたこと → 場所」で決める。
-//    設定にない手がかりは Claude が候補の中から選び、理由をそえる）
-// 2. 念のため、体まわり（頭の上・首元・ポケット）を1回の問いかけで確かめる
-// 3. 一日の流れ（日課）があれば、今日もう始まった日課のうち新しいものから、その場所を（最大3か所）。
-//    探す時刻と置いた時刻はちがうので、「今何時か」ではなく「最後にしていたこと」で決める。最初の場所は理由を言う
-// 4. よく置く場所（設定の上から4か所）を点数順に。日課がないときだけ、怪しい時刻なら理由を言う
-// 5. それでもなければ、残りの場所を続けて案内する
-
+// 確かめる順番と、各場所で言う一言を決める（画面や声とは切り離した純粋な処理）。仕様書 4章・5章。
+// 1. 机の気づきにくい場所（2か所まで）: 目の前にあるのに気づかない、への助け。手でさわって確かめる
+// 2. 体のまわり（頭の上・首元・ポケット）を1回の問いかけで
+// 3. 置いた場所: 手がかり（話に出たら先頭へ）→ 一日の流れ（今日もう始まった日課のうち新しいものから最大3か所。
+//    探す時刻と置いた時刻はちがうため。最初の場所だけ理由を言う）→ よく置く場所（4か所、記録で並べ替え）→ 残り
 import { BODY_CHECK, aliases, type Activity, type Place } from "./places";
 import { recentRoutine, routineReason, type RoutineEntry } from "./routine";
 
@@ -75,6 +71,7 @@ export function initialPlan(opts: {
   clue?: Clue | null;
   hours?: FoundHours;
   routine?: RoutineEntry[];
+  desk?: Place[];
 }): { first: Step[]; rest: Step[] } {
   const hasRoutine = !!opts.routine?.length;
   // 日課があるときは、場所の一覧の「怪しい時刻」は使わない（日課の時刻と食い違わないように）
@@ -85,6 +82,7 @@ export function initialPlan(opts: {
 
   const first: Step[] = [];
   if (cluePlace) first.push({ place: cluePlace, reason: opts.clue!.reason });
+  for (const d of opts.desk ?? []) first.push({ place: d, reason: "" });
   first.push({ place: BODY_CHECK, reason: "" });
   const used = new Set<Place>(cluePlace ? [cluePlace] : []);
   if (hasRoutine) {
@@ -112,15 +110,12 @@ export function moveToFront(queue: Step[], rest: Step[], clue: Clue): { queue: S
   };
 }
 
-// 各場所の問いかけの文。一度に言うのは一か所だけ、説明は短く
-export function question(opts: { step: Step; index: number; afterBody: boolean; explain: boolean }): string {
+// 各場所の問いかけの文。一度に言うのは一か所だけ、短く。
+// 最初の一回だけ「見つかったら、教えてください。」をそえる（答えの言葉そのものは言わせない）
+export function question(opts: { step: Step; explain: boolean }): string {
   const parts: string[] = [];
-  if (opts.afterBody) parts.push("体のまわりにはなかったですね。");
   if (opts.step.reason) parts.push(`${opts.step.reason}。`);
-  const lead = opts.index === 0 && !opts.step.reason && !opts.step.place.body ? "まず、" : "";
-  parts.push(`${lead}${opts.step.place.action}。`);
-  if (opts.step.place.body) parts.push("あったか、なかったか教えてください。");
-  else if (opts.explain) parts.push("確かめてきて、戻ったら「あった」か「なかった」と教えてください。");
-  else parts.push("戻ったら教えてください。");
+  parts.push(`${opts.step.place.action}。`);
+  if (opts.explain) parts.push("見つかったら、教えてください。");
   return parts.join("");
 }

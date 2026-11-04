@@ -14,6 +14,8 @@ export type Place = {
   bands?: Partial<Record<TimeBand, number>>; // 時間帯ごとの加点（サンプル用）
   hours?: number[]; // 怪しい時刻（例: 16 → 15〜17時に大きく加点）
   main?: boolean; // よく置く場所（最初はここだけ確かめる）
+  near?: boolean; // 手元で確かめられる場所（机・体のまわり）。待ち時間を短くする
+  desk?: boolean; // 机の気づきにくい場所（目の前にあるのに気づかない、への助け）
 };
 
 // 場所の呼び方のゆれ（「居間のテーブル」→「居間」「テーブル」も同じ場所として聞き取る）
@@ -31,8 +33,9 @@ export const MAIN_COUNT = 4;
 export const BODY_CHECK: Place = {
   id: "body",
   name: "頭の上・首元・ポケット",
-  action: "念のため、頭の上や首元、ポケットにかかっていませんか？手でさわってみてください",
+  action: "頭の上、首元、ポケットをさわってみてください",
   body: true,
+  near: true,
   base: 100,
 };
 

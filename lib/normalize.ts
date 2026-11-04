@@ -52,38 +52,47 @@ export function coreOf(text: string): string {
 }
 
 // 探しに行っている間に聞こえた声を、答えとして扱うかどうか。
-// 歩きながらのつぶやきやテレビの声（長い話）は拾わず、「あった」「なかったよ」くらいの短い言い切りだけを答えにする
+// 歩きながらのつぶやきやテレビの声（長い話）は拾わず、「あった」「なかったよ」くらいの短い言い切りだけを答えにする。
+// ただし「あった、ポケットに」のように見つかった場所を言うときは少し長くなるので、見つかった答えは20字まで受け取る
 export function answerWhileWaiting(text: string): FoundKind | null {
   const c = coreOf(text);
-  if (!c || c.length > 10) return null;
-  return foundAnswer(c);
+  if (!c) return null;
+  if (c.length <= 10) return foundAnswer(c);
+  // 「あった」で始まる言い切りだけ（「どこにあったかな…」のようなつぶやきは除く）
+  if (c.length <= 20 && /^(あった|有った|ありました|あります|見つけた|見つかった|みつけた|みつかった)/.test(c) && foundAnswer(c) === "found") return "found";
+  return null;
 }
 
-// 「はい」「いいえ」「あった」などの短い答えだと分かったか（分かったら長く待たずに区切る）
-export function isQuickAnswer(text: string): boolean {
+// 短い答えのとき、何ミリ秒待って区切るか（null は通常どおり）。
+// 「あった」は、続けて場所を言うことがあるので少し長めに待つ
+export function quickWaitMs(text: string): number | null {
   const c = coreOf(text);
-  if (!c || c.length > 6) return false;
-  return yesNo(c) !== null || foundAnswer(c) !== null;
+  if (!c || c.length > 6) return null;
+  const f = foundAnswer(c);
+  if (f === "found") return 1500;
+  if (yesNo(c) !== null || f !== null) return 700;
+  return null;
+}
+export function isQuickAnswer(text: string): boolean {
+  return quickWaitMs(text) !== null;
 }
 
-// 聞こえた答えを、本人の言葉で短く声に出して返す（画面の字は見ないので、声で「聞こえた」を伝える）
+// 聞こえた「なかった」を、声で短く返す（本人は画面の字を見ないので、耳で「聞こえた」が分かるように）
 export function echoOf(ans: boolean | FoundKind | null): string {
-  switch (ans) {
-    case true:
-    case "unsure":
-      return "はい。";
-    case false:
-      return "いいえ、ですね。";
-    case "found":
-      return "あったんですね。";
-    case "not":
-      return "なかったんですね。";
-    default:
-      return ""; // 取り消し・休むは、すぐ「わかりました」と返すので不要
-  }
+  return ans === "not" ? "なかったんですね。" : "";
 }
 
-// すでに受け止める言葉で始まる文なら、声の返事を重ねない
-export function startsWithAck(text: string): boolean {
-  return /^(わかりました|体のまわりには|よく置く場所には|あったね|なるほど)/.test(text);
+// アプリが話した文や画面の字を、本人がそのまま読み上げたような言葉か。
+// 例: 「見つかったら、教えてください」を読み上げると「見つかった」が答えに聞こえるので、答えにしない
+export function looksLikeReadAloud(heard: string, sources: string[]): boolean {
+  const h = coreOf(heard);
+  if (h.length < 5) return false;
+  const grams: string[] = [];
+  for (let i = 0; i < h.length - 1; i++) grams.push(h.slice(i, i + 2));
+  return sources.some((src) => {
+    const s = coreOf(src);
+    if (!s) return false;
+    const hit = grams.filter((g) => s.includes(g)).length;
+    return hit / grams.length >= 0.6;
+  });
 }

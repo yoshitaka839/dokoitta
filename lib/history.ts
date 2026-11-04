@@ -6,7 +6,10 @@ export type SearchRecord = {
   utterances: string[]; // 本人の話（手がかり）
   checked: string[]; // 確かめた場所の名前（順番どおり）
   foundAt?: string; // 見つかった場所の名前
-  ended: "found" | "rest" | "all-checked" | "stopped";
+  ended: "searching" | "found" | "rest" | "no-reply" | "all-checked" | "stopped";
+  nextPlace?: string; // あきらめた・返事なしのとき「次に見るなら」の場所
+  oldFound?: string[]; // 古い方の老眼鏡が見つかった場所
+  lookNoReply?: boolean; // 見た目の確かめに返事がなかった（古い方を持って行ったかもしれない）
   rerankSource?: "claude" | "program";
   practice?: boolean; // 練習・動作確認の記録（よく見つかる場所の回数には数えない）
 };
@@ -21,9 +24,10 @@ export function loadHistory(): SearchRecord[] {
   }
 }
 
+// 同じ記録（始めた時刻が同じ）があれば置き換える。1か所ごとに保存して、途中で閉じても残るようにする
 export function saveRecord(r: SearchRecord) {
   try {
-    const all = loadHistory();
+    const all = loadHistory().filter((x) => x.at !== r.at);
     all.unshift(r);
     localStorage.setItem(KEY, JSON.stringify(all.slice(0, 100)));
   } catch {

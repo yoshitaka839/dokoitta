@@ -4,7 +4,9 @@ import { parseActivitiesText, parsePlacesText } from "../lib/places";
 import { clueFromRerank, hasClue, initialPlan, matchActivity, matchSpokenPlace, moveToFront, question } from "../lib/plan";
 import { parseRoutineText, recentRoutine, routineReason, withRoutinePlaces, afterPhrase } from "../lib/routine";
 import { effectiveTime } from "../lib/trytime";
-import { answerWhileWaiting, echoOf, foundAnswer, isQuickAnswer, startsWithAck } from "../lib/normalize";
+import { answerWhileWaiting, echoOf, foundAnswer, isQuickAnswer, looksLikeReadAloud, quickWaitMs } from "../lib/normalize";
+import { DEFAULT_PROFILE, lookQuestion, parseDeskText, SAMPLE_DESK_TEXT } from "../lib/profile";
+import { P } from "../lib/phrases";
 
 const home = parsePlacesText(`物置の棚 | 物置の棚の上を見てください | 16
 居間のテーブル | 居間のテーブルの上を見てください
@@ -24,12 +26,13 @@ const names = (steps: { place: { name: string } }[]) => steps.map((s) => s.place
   assert.deepEqual(names(p.first), ["頭の上・首元・ポケット", "物置の棚", "居間のテーブル", "台所", "ソファ"]);
   assert.deepEqual(names(p.rest), ["玄関", "寝室"]);
   assert.equal(
-    question({ step: p.first[1], index: 1, afterBody: true, explain: true }),
-    "体のまわりにはなかったですね。16時ごろなので、物置の棚かもしれません。物置の棚の上を見てください。確かめてきて、戻ったら「あった」か「なかった」と教えてください。",
+    question({ step: p.first[1], explain: false }),
+    "16時ごろなので、物置の棚かもしれません。物置の棚の上を見てください。",
   );
-  assert.ok(question({ step: p.first[0], index: 0, afterBody: false, explain: false }).startsWith("念のため、頭の上や首元、ポケット"));
-  // 2か所目からは説明を短く
-  assert.ok(question({ step: p.first[2], index: 2, afterBody: false, explain: false }).endsWith("戻ったら教えてください。"));
+  // 最初の一回だけ説明をそえる。答えの言葉（あった・なかった）そのものは言わせない
+  const q0 = question({ step: p.first[0], explain: true });
+  assert.equal(q0, "頭の上、首元、ポケットをさわってみてください。見つかったら、教えてください。");
+  assert.ok(!/あった|なかった/.test(q0));
 }
 
 // 時刻から外れると、物置の棚は理由なしで上から順
@@ -119,11 +122,7 @@ assert.equal(isQuickAnswer("はいはいそれでね台所のほうに"), false)
 
 // 聞こえた答えは声で短く返す。すでに受け止める言葉で始まる文には重ねない
 assert.equal(echoOf("not"), "なかったんですね。");
-assert.equal(echoOf("found"), "あったんですね。");
-assert.equal(echoOf(true), "はい。");
-assert.equal(echoOf("rest"), "");
-assert.equal(startsWithAck("体のまわりにはなかったですね。"), true);
-assert.equal(startsWithAck("まず、台所のテーブルを見てください"), false);
+assert.equal(echoOf("found"), "");
 
 // 一日の流れ: 探す時刻ではなく「今日もう始まった日課のうち、いちばん最近のもの」の場所から（サンプル）
 {
@@ -171,5 +170,33 @@ assert.equal(startsWithAck("まず、台所のテーブルを見てください"
   assert.equal(hm(effectiveTime(null, { time: "15:50", day: "2026-11-06" }, now).date), "15:50");
   assert.equal(effectiveTime("10:00", { time: "15:50", day: "2026-11-06" }, now).source, "url");
 }
+
+// 仕様書の流れ: 机の気づきにくい場所（2か所まで）→ 体のまわり → 置いた場所
+{
+  const desk = parseDeskText(SAMPLE_DESK_TEXT + "\n3か所目 | これは使わない");
+  assert.equal(desk.length, 2);
+  assert.ok(desk.every((d) => d.near && d.desk));
+  const p = initialPlan({ home, found: {}, now: at16, clue: null, desk });
+  assert.deepEqual(names(p.first).slice(0, 4), ["机の奥の本の上", "机の書類の下", "頭の上・首元・ポケット", "物置の棚"]);
+}
+
+// 「あった、ポケットに」のように場所も言った答えは、少し長くても見つかったとして受け取る
+assert.equal(answerWhileWaiting("あった、机の書類の下にあったよ"), "found");
+assert.equal(answerWhileWaiting("どこにあったかなあ、さっきテレビで見た話だけど"), null);
+// 「あった」は場所が続くかもしれないので少し長めに待つ
+assert.equal(quickWaitMs("あった"), 1500);
+assert.equal(quickWaitMs("なかった"), 700);
+
+// 読み上げを答えにしない: アプリの言葉や画面の字をそのまま読んだ言葉
+assert.equal(looksLikeReadAloud("見つかったら教えてください", ["頭の上、首元、ポケットをさわってみてください。見つかったら、教えてください。"]), true);
+assert.equal(looksLikeReadAloud("あった", ["見つかったら、教えてください。"]), false); // 短い答えは答え
+assert.equal(looksLikeReadAloud("机の書類の下", ["机の書類の下"]), true); // 画面の場所の名前を読んだだけ
+assert.equal(looksLikeReadAloud("さっき新聞を読んでた", ["机の書類の下"]), false);
+
+// 本人に言う言葉: 答えの言葉そのものを言わせない。見た目の確かめ
+assert.equal(lookQuestion(DEFAULT_PROFILE), "いつものメガネですか？");
+assert.equal(lookQuestion({ ...DEFAULT_PROFILE, looks: "細いふちの" }), "いつもの細いふちのメガネですか？");
+assert.equal(P.giveUp("台所"), "わかりました。次に見るなら、台所です。");
+assert.ok(!/あった|なかった/.test(P.explain + P.reprompt));
 
 console.log("ok: plan tests passed");

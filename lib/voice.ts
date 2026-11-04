@@ -56,6 +56,8 @@ export function listen(
     onPartial?: (t: string) => void;
     // 短い答えだと分かったら、すぐ区切る（間があくと何度も言ってしまうため）
     quickCut?: (t: string) => boolean;
+    // 短い答えのときに区切るまでの時間（null なら通常どおり）。quickCut より優先
+    quickWait?: (t: string) => number | null;
   } = {},
 ): Promise<ListenResult> {
   const silenceMs = opts.silenceMs ?? 3000;
@@ -81,7 +83,8 @@ export function listen(
       opts.onPartial?.(all);
       if (silence) clearTimeout(silence);
       const t = all.trim();
-      const wait = opts.quickCut?.(t) ? 700 : UNFINISHED.test(t) ? unfinishedMs : silenceMs;
+      const q = opts.quickWait?.(t) ?? (opts.quickCut?.(t) ? 700 : null);
+      const wait = q ?? (UNFINISHED.test(t) ? unfinishedMs : silenceMs);
       silence = setTimeout(() => rec.stop(), wait);
     };
     rec.onerror = (e: any) => {
@@ -136,5 +139,25 @@ export function beep() {
     });
   } catch {
     /* 音が出なくても流れは止めない */
+  }
+}
+
+// 探している間だけ画面を消さない（自動ロックで声も聞き取りも止まるため）。使えない端末では false
+let lock: any = null;
+export function canKeepAwake(): boolean {
+  return typeof navigator !== "undefined" && "wakeLock" in navigator;
+}
+export async function keepAwake(on: boolean): Promise<boolean> {
+  try {
+    if (on) {
+      if (!canKeepAwake()) return false;
+      lock = await (navigator as any).wakeLock.request("screen");
+      return true;
+    }
+    await lock?.release?.();
+    lock = null;
+    return true;
+  } catch {
+    return false;
   }
 }
