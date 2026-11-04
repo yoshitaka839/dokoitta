@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { foundCounts, loadHistory, type SearchRecord } from "@/lib/history";
+import { setupStatus, statusLine } from "@/lib/setupstatus";
 
 const ENDED: Record<SearchRecord["ended"], string> = {
   searching: "探している途中で閉じた",
@@ -20,10 +21,15 @@ const needsCall = (r: SearchRecord) => r.ended === "rest" || r.ended === "no-rep
 export default function Family() {
   const [records, setRecords] = useState<SearchRecord[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
+  const [status, setStatus] = useState<string | null>(null);
+  const [sample, setSample] = useState(false);
 
   useEffect(() => {
     setRecords(loadHistory());
     setCounts(foundCounts());
+    const st = setupStatus();
+    setStatus(statusLine(st));
+    setSample(!st.custom);
   }, []);
 
   const ranking = Object.entries(counts).sort((a, b) => b[1] - a[1]);
@@ -31,6 +37,17 @@ export default function Family() {
   return (
     <main>
       <h1>探した記録（家族用）</h1>
+      {status && (
+        <div className="card" style={{ fontSize: 22, fontWeight: 700, color: sample ? "#b5482f" : "#2e7d4f", borderColor: sample ? "#b5482f" : undefined }}>
+          {status}
+          {sample && (
+            <>
+              {" "}
+              <Link href="/settings">設定を入れる</Link>
+            </>
+          )}
+        </div>
+      )}
       <p className="muted">この iPad の中にだけ残っている記録です。新しいものが上です。</p>
 
       <div className="card">

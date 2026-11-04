@@ -75,6 +75,7 @@ main.talk-page {
 
 /* ── 本人の画面（仕様書 7章）: 字は大きく、押せる物は押せる形に ── */
 main.talk-page.start { background: #ffffff; }
+.sample-tag { position: fixed; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); font-size: 18px; color: #b5482f; border: 1px solid #e3b5a9; border-radius: 12px; padding: 8px 12px; background: #fff; }
 .practice-tag { position: fixed; top: 8px; right: 12px; font-size: 20px; color: #b5482f; font-weight: bold; }
 .start-wrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
 .start-button {

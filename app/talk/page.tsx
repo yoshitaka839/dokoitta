@@ -92,6 +92,7 @@ export default function Talk() {
   const [savedFound, setSavedFound] = useState<string | null>(null);
   const [practice, setPractice] = useState(false);
   const [tryAt, setTryAt] = useState<string | null>(null);
+  const [sampleNow, setSampleNow] = useState(false); // 設定がサンプルのまま（家族に知らせる。本人の声や大きな字には出さない）
   const pending = useRef<((v: FoundAns) => void) | null>(null);
   const saidSoFar = useRef<string[]>([]); // この回にアプリが話した文（読み上げを答えにしないため）
   const placesRef = useRef<Place[]>([]);
@@ -100,6 +101,7 @@ export default function Talk() {
 
   useEffect(() => {
     setPractice(isPractice());
+    setSampleNow(usingSamplePlaces());
     setTryAt(urlParams()?.get("at") ?? loadTryTime()?.time ?? null);
   }, []);
 
@@ -340,6 +342,7 @@ export default function Talk() {
             <span className="line">{stage === "pressed" ? "はじめます" : "さがしはじめます"}</span>
           </button>
           {stage === "idle" && <FamilyCorner />}
+          {stage === "idle" && sampleNow && <div className="sample-tag">家族の方へ：設定がサンプルのままです</div>}
         </div>
       )}
 

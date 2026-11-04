@@ -22,6 +22,7 @@ import { initialPlan } from "@/lib/plan";
 import { loadTryTime, saveTryTime } from "@/lib/trytime";
 import { DEFAULT_PROFILE, SAMPLE_DESK_TEXT, loadDeskText, loadProfile, lookQuestion, parseDeskText, saveDeskText, saveProfile, type Profile } from "@/lib/profile";
 import { canKeepAwake } from "@/lib/voice";
+import { markSaved, setupStatus, statusLine, type SetupStatus } from "@/lib/setupstatus";
 import { SAMPLE_ROUTINE_TEXT, allSettingPlaces, loadRoutineText, parseRoutineText, saveRoutineText, unreadRoutineLines } from "@/lib/routine";
 
 const area = { width: "100%", fontSize: 20, padding: 12, borderRadius: 12, border: "2px solid var(--line)" } as const;
@@ -39,8 +40,12 @@ export default function Settings() {
   const [awakeOk, setAwakeOk] = useState(true);
   const [transfer, setTransfer] = useState("");
   const [transferMsg, setTransferMsg] = useState("");
+  const [status, setStatus] = useState<SetupStatus | null>(null);
+  const [origin, setOrigin] = useState("https://dokoitta-one.vercel.app");
 
   useEffect(() => {
+    setStatus(setupStatus());
+    setOrigin(window.location.origin);
     setProfile(loadProfile());
     setDeskText(loadDeskText() ?? SAMPLE_DESK_TEXT);
     setAwakeOk(canKeepAwake());
@@ -72,6 +77,8 @@ export default function Settings() {
     saveRoutineText(routineText);
     saveProfile(profile);
     saveDeskText(deskText);
+    markSaved(true);
+    setStatus(setupStatus());
     setMsg("この iPad に保存しました。");
   };
   const reset = () => {
@@ -85,13 +92,28 @@ export default function Settings() {
     setText(placesToText(SAMPLE_HOME_PLACES));
     setActs(SAMPLE_ACTIVITIES_TEXT);
     setRoutineText(SAMPLE_ROUTINE_TEXT);
+    markSaved(false);
+    setStatus(setupStatus());
     setMsg("サンプルにもどしました。");
   };
 
   return (
     <main>
       <h1>設定（家族用）</h1>
+      {status && (
+        <div className="card" style={{ fontSize: 28, fontWeight: 700, borderWidth: 3, borderColor: status.custom ? "#2e7d4f" : "#b5482f", color: status.custom ? "#2e7d4f" : "#b5482f" }}>
+          {statusLine(status)}
+          {status.custom && status.sampleParts.length > 0 && (
+            <div style={{ fontSize: 20, fontWeight: 400, marginTop: 6, color: "var(--muted)" }}>サンプルのままの部分: {status.sampleParts.join("、")}</div>
+          )}
+          {!status.custom && (
+            <div style={{ fontSize: 20, fontWeight: 400, marginTop: 6 }}>家の場所などが例のままです。下の「はじめての準備」の手順で入れてください。</div>
+          )}
+        </div>
+      )}
       <p className="muted">ここに書いた内容は、この iPad の中にだけ保存され、GitHub などには上がりません。</p>
+
+      <Setup origin={origin} open={!!status && !status.custom} />
 
       {!awakeOk && (
         <div className="card" style={{ borderColor: "#b5482f", fontSize: 22 }}>
@@ -157,7 +179,7 @@ export default function Settings() {
         {transferMsg && <p style={{ margin: 0 }}>{transferMsg}</p>}
       </details>
 
-      <h2>0. 本人への言い方と、老眼鏡の見た目</h2>
+      <h2 id="profile">0. 本人への言い方と、老眼鏡の見た目</h2>
       <div className="card" style={{ fontSize: 22, display: "grid", gap: 12 }}>
         <label>
           呼び名（本人への画面と声で使う）{" "}
@@ -173,25 +195,25 @@ export default function Settings() {
         </label>
       </div>
 
-      <h2>机の気づきにくい場所（最初に確かめる、2か所まで）</h2>
+      <h2 id="desk">机の気づきにくい場所（最初に確かめる、2か所まで）</h2>
       <p className="muted">1行に1か所、「名前 | 確かめ方」。目の前にあるのに気づかない場所を、手でさわって確かめてもらいます。</p>
       <textarea value={deskText} onChange={(e) => setDeskText(e.target.value)} rows={3} style={area} />
 
-      <h2>1. 家の場所</h2>
+      <h2 id="places">1. 家の場所</h2>
       <p className="muted">
         1行に1か所、「名前 | 確かめ方 | 怪しい時刻」。確かめ方は「居間のテーブルの上を見てください」のように一か所だけにします。上から{MAIN_COUNT}か所が「よく置く場所」で、最初はここだけ確かめます。
         怪しい時刻（任意）は 16 や 7,21 のように書きます。頭の上・首元・ポケットは書かなくて大丈夫です。
       </p>
       <textarea value={text} onChange={(e) => setText(e.target.value)} rows={8} style={area} />
 
-      <h2>2. していたこと → 場所</h2>
+      <h2 id="acts">2. していたこと → 場所</h2>
       <p className="muted">
         1行に1つ、「していたこと、していたこと &gt; 場所の名前」。話の中にその言葉があれば、その場所をいちばん先に確かめます。
         場所の名前は、上の1と同じ書き方にしてください。
       </p>
       <textarea value={acts} onChange={(e) => setActs(e.target.value)} rows={6} style={area} />
 
-      <h2>3. 一日の流れ</h2>
+      <h2 id="routine">3. 一日の流れ</h2>
       <p className="muted">
         1行に1つ、「時刻 &gt; 日課 &gt; 眼鏡の置き場所」。例「12:00 &gt; 昼ごはん &gt; 台所」。
         探すときは、今日もう始まった日課のうち、いちばん最近のものの場所から確かめます（探す時刻と置いた時刻はちがうため）。
@@ -205,7 +227,7 @@ export default function Settings() {
         </p>
       )}
 
-      <h2>4. 試すときの時刻（練習・撮影用）</h2>
+      <h2 id="trytime">4. 試すときの時刻（練習・撮影用）</h2>
       <p className="muted">
         指定すると、探す画面はこの時刻として順番を決めます（ふだんは今の時刻）。指定している間は練習あつかいで、記録は回数に数えません。
         解除し忘れても、次の日には自動で今の時刻にもどります。探す画面の上に「練習（15:50として）」と小さく出ます。
@@ -240,13 +262,13 @@ export default function Settings() {
         )}
       </div>
 
-      <div style={{ display: "flex", gap: 16 }}>
+      <div id="save" style={{ display: "flex", gap: 16 }}>
         <button className="big-button" style={{ minHeight: 72, fontSize: 28 }} onClick={save}>保存する</button>
         <button className="big-button no" style={{ minHeight: 72, fontSize: 28 }} onClick={reset}>サンプルにもどす</button>
       </div>
       {msg && <p>{msg}</p>}
 
-      <div className="card" style={{ fontSize: 20 }}>
+      <div id="order" className="card" style={{ fontSize: 20 }}>
         <div className="muted">
           確かめる順番（手がかりがないとき）　
           <label>
@@ -308,5 +330,82 @@ export default function Settings() {
       </div>
       <p><Link href="/talk">探す画面へ</Link></p>
     </main>
+  );
+}
+
+// はじめての準備。覚えていなくても、ほかの家族が初めて使うときも、上から順にやれば終わるように
+function Setup({ origin, open }: { origin: string; open: boolean }) {
+  const L = ({ path, label }: { path: string; label?: string }) => (
+    <a href={path} style={{ wordBreak: "break-all" }}>{label ?? `${origin}${path}`}</a>
+  );
+  return (
+    <details className="card" open={open} style={{ fontSize: 21, lineHeight: 1.6 }}>
+      <summary style={{ fontSize: 26, fontWeight: 700 }}>はじめての準備（家族の方へ）</summary>
+      <p style={{ margin: "8px 0" }}>本人に渡す前に、家族が一度だけ行います。本人が使う iPad で、上から順に進めてください。</p>
+      <ol style={{ paddingLeft: "1.4em", display: "grid", gap: 14 }}>
+        <li>
+          <strong>この設定画面を Safari で開く</strong>
+          <br />
+          アドレス: <L path="/settings" />
+          <br />
+          （ホーム画面のアイコンからではなく、Safari で開いてください）
+        </li>
+        <li>
+          <strong>設定を入れて、保存する</strong>
+          <br />
+          次の順に書きかえます。わからないところは例のままで大丈夫です。
+          <ul style={{ paddingLeft: "1.2em" }}>
+            <li><L path="#profile" label="0. 本人への言い方と、老眼鏡の見た目" />（例: 見た目「細いふちの」）</li>
+            <li><L path="#desk" label="机の気づきにくい場所" />（机の上で、目の前にあっても気づきにくい所を2か所まで）</li>
+            <li><L path="#places" label="1. 家の場所" />（よく置く場所を上から）</li>
+            <li><L path="#acts" label="2. していたこと → 場所" /></li>
+            <li><L path="#routine" label="3. 一日の流れ" />（時刻 &gt; 日課 &gt; 置き場所。前の日の夕方に置いたままのこともあるので、夕方や夜の日課も書く）</li>
+          </ul>
+          最後に <L path="#save" label="「保存する」" /> を押します。この画面のいちばん上が「今の設定：家族が入れた設定（今日の日付）」になれば保存できています。
+          <br />
+          <L path="#order" label="「確かめる順番」" /> で探す時刻を変えると、どの順に案内するかを確かめられます。
+        </li>
+        <li>
+          <strong>マイクと音声認識を許可する</strong>
+          <br />
+          練習用の画面を開きます: <L path="/talk?practice=1" />
+          <br />
+          「ここを押すと さがしはじめます」を押すと、「マイク」と「音声認識」の許可を聞かれるので、どちらも「許可」を押します。練習の記録は回数に数えません。
+          <br />
+          声が聞こえないときは、iPad の音量と、横のスイッチ（消音）を確かめてください。
+          <br />
+          以前に「許可しない」を押した場合は、iPad の「設定」アプリ → アプリ → Safari → マイク を「確認」か「許可」にしてください（このリンクは iPad の決まりで作れません）。
+        </li>
+        <li>
+          <strong>ホーム画面に追加する</strong>
+          <br />
+          Safari で開きます: <L path="/talk" />
+          <br />
+          画面の共有ボタン（四角から上向きの矢印）→「ホーム画面に追加」を押します。「Webアプリとして開く」が出たら<strong>オフ</strong>にしてください（オンにすると、ここで入れた設定が使われません）。
+          <br />
+          前に追加した「どこいった？」のアイコンがあれば、先に長押しして削除してください。
+        </li>
+        <li>
+          <strong>ホーム画面のアイコンから一度試す</strong>
+          <br />
+          アイコンを押して開き、最初の声が聞こえるか、答えを聞き取るかを確かめます。最初の画面の右下に「設定がサンプルのままです」と出ていたら、設定が保存されていません（2. に戻ってください）。
+        </li>
+        <li>
+          <strong>決まった時刻として試すとき（練習・撮影）</strong>
+          <br />
+          <L path="#trytime" label="4. 試すときの時刻" /> で時刻を入れて「この時刻で試す」を押します。その日のあいだ、探す画面はその時刻として順番を決め、記録は練習あつかいになります。次の日には自動で今の時刻にもどります。終わったら「解除して今の時刻にもどす」を押してください。
+        </li>
+        <li>
+          <strong>画面が消えないか確かめる</strong>
+          <br />
+          探している間は画面を消さない仕組みを使います。この画面の上に赤い注意が出ているときだけ、iPad の「設定」アプリ →「画面表示と明るさ」→「自動ロック」を長め（10分など）にしてください。
+        </li>
+        <li>
+          <strong>記録の見方</strong>
+          <br />
+          探した記録は家族ページで見られます: <L path="/family" />
+        </li>
+      </ol>
+    </details>
   );
 }
