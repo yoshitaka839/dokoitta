@@ -31,6 +31,17 @@ export function saveRecord(r: SearchRecord) {
   }
 }
 
+// 見つかった時刻（何時ごろか）を場所ごとに集める。練習の記録は数えない
+export function foundHours(): Record<string, number[]> {
+  const h: Record<string, number[]> = {};
+  for (const r of loadHistory()) {
+    if (!r.foundAt || r.practice) continue;
+    const d = new Date(r.at);
+    (h[r.foundAt] ??= []).push(d.getHours() + d.getMinutes() / 60);
+  }
+  return h;
+}
+
 export function foundCounts(): FoundCounts {
   const c: FoundCounts = {};
   for (const r of loadHistory()) if (r.foundAt && !r.practice) c[r.foundAt] = (c[r.foundAt] ?? 0) + 1;

@@ -6,7 +6,7 @@
 // 4. それでもなければ、「ほかの場所も見ますか？」と聞いてから残りの場所へ
 
 import { BODY_CHECK, type Activity, type Place } from "./places";
-import { hourHit, mergeOrder, scorePlaces, type FoundCounts } from "./rank";
+import { foundAtSameTime, hourHit, mergeOrder, scorePlaces, type FoundCounts, type FoundHours } from "./rank";
 
 export type Step = { place: Place; reason: string };
 export type RerankResult = { order: string[]; reason: string; source: "claude" | "program" };
@@ -61,18 +61,26 @@ export function clueFromRerank(rr: RerankResult | null, candidates: Place[]): Cl
   return top ? { placeId: top, reason: rr.reason.trim(), by: "claude" } : null;
 }
 
-export function programReason(p: Place, found: FoundCounts, now: Date): string {
+// 探した記録をもとにした理由（「学習」ではなく、家族と本人が残した記録を順番に使う）
+export function programReason(p: Place, found: FoundCounts, now: Date, hours: FoundHours = {}): string {
   const h = hourHit(p, now);
   if (h !== null) return `${h}時ごろなので、${p.name}かもしれません`;
-  if ((found[p.name] ?? 0) > 0) return `前にも${p.name}で見つかっています`;
+  if (foundAtSameTime(p, hours, now)) return `前もこの時間に、${p.name}で見つかりました`;
+  if ((found[p.name] ?? 0) > 0) return `前は${p.name}で見つかりました`;
   return "";
 }
 
-export function initialPlan(opts: { home: Place[]; found: FoundCounts; now: Date; clue?: Clue | null }): { first: Step[]; rest: Step[] } {
-  const scored = scorePlaces(opts.home, opts.found, opts.now).map((s) => s.place);
+export function initialPlan(opts: {
+  home: Place[];
+  found: FoundCounts;
+  now: Date;
+  clue?: Clue | null;
+  hours?: FoundHours;
+}): { first: Step[]; rest: Step[] } {
+  const scored = scorePlaces(opts.home, opts.found, opts.now, opts.hours).map((s) => s.place);
   const cluePlace = opts.clue ? scored.find((p) => p.id === opts.clue!.placeId) : undefined;
   const others = scored.filter((p) => p !== cluePlace);
-  const step = (p: Place): Step => ({ place: p, reason: programReason(p, opts.found, opts.now) });
+  const step = (p: Place): Step => ({ place: p, reason: programReason(p, opts.found, opts.now, opts.hours) });
 
   const first: Step[] = [];
   if (cluePlace) first.push({ place: cluePlace, reason: opts.clue!.reason });

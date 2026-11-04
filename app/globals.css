@@ -52,3 +52,9 @@ a { color: var(--accent); }
 .checked { font-size: 20px; }
 .wait-note { font-size: 28px; color: var(--accent); font-weight: bold; }
 .big-button.undo { background: transparent; color: var(--muted); border: 2px solid var(--line); min-height: 64px; font-size: 24px; margin: 0; }
+/* 聞き取った言葉（誰の言葉かが分かるように大きく） */
+.heard-box { width: 100%; border: 3px solid var(--line); border-radius: 20px; padding: 12px 20px; background: var(--card); }
+.heard-box .who { font-size: 22px; color: var(--muted); }
+.heard-box .heard { font-size: 44px; color: var(--fg); min-height: 0; }
+.heard-box.ok { border-color: var(--accent); background: #e6f3ee; }
+.heard-box.ok .who { color: var(--accent); font-weight: bold; }

@@ -49,7 +49,14 @@ const UNFINISHED = /(けど|けれど|が|て|で|から|ので|し|と|は|を|
 // 話し終わって silenceMs 黙ったら区切る（途中っぽければ unfinishedMs まで待つ）。
 // 何も話さなければ maxMs で終わる。父はゆっくり間をあけて話すので、既定値は長め。
 export function listen(
-  opts: { silenceMs?: number; unfinishedMs?: number; maxMs?: number; onPartial?: (t: string) => void } = {},
+  opts: {
+    silenceMs?: number;
+    unfinishedMs?: number;
+    maxMs?: number;
+    onPartial?: (t: string) => void;
+    // 短い答えだと分かったら、すぐ区切る（間があくと何度も言ってしまうため）
+    quickCut?: (t: string) => boolean;
+  } = {},
 ): Promise<ListenResult> {
   const silenceMs = opts.silenceMs ?? 3000;
   const unfinishedMs = opts.unfinishedMs ?? 5000;
@@ -73,7 +80,8 @@ export function listen(
       text = all;
       opts.onPartial?.(all);
       if (silence) clearTimeout(silence);
-      const wait = UNFINISHED.test(all.trim()) ? unfinishedMs : silenceMs;
+      const t = all.trim();
+      const wait = opts.quickCut?.(t) ? 700 : UNFINISHED.test(t) ? unfinishedMs : silenceMs;
       silence = setTimeout(() => rec.stop(), wait);
     };
     rec.onerror = (e: any) => {
@@ -92,4 +100,41 @@ export function listen(
       resolve({ text: "", error: String(err) });
     }
   });
+}
+
+// 「聞こえました」の合図の音。iPad は画面をさわった後でないと音を出せないので、最初のタップで prepareBeep() を呼ぶ
+let audio: AudioContext | null = null;
+
+export function prepareBeep() {
+  try {
+    const w = window as any;
+    audio = audio ?? new (w.AudioContext || w.webkitAudioContext)();
+    if (audio?.state === "suspended") audio.resume();
+  } catch {
+    audio = null;
+  }
+}
+
+export function beep() {
+  if (!audio) return;
+  try {
+    const t = audio.currentTime;
+    // ピンポン（高い音を2つ）
+    [
+      [988, 0],
+      [1319, 0.13],
+    ].forEach(([freq, delay]) => {
+      const osc = audio!.createOscillator();
+      const gain = audio!.createGain();
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t + delay);
+      gain.gain.exponentialRampToValueAtTime(0.3, t + delay + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + delay + 0.28);
+      osc.connect(gain).connect(audio!.destination);
+      osc.start(t + delay);
+      osc.stop(t + delay + 0.3);
+    });
+  } catch {
+    /* 音が出なくても流れは止めない */
+  }
 }

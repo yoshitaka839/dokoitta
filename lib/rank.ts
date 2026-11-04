@@ -35,12 +35,25 @@ function hourBonus(p: Place, now: Date): number {
   return best;
 }
 
-export function scorePlaces(places: Place[], found: FoundCounts = {}, now = new Date()) {
+export type FoundHours = Record<string, number[]>; // 場所の名前 → 見つかった時刻（時）の一覧
+
+// 前にも今と同じくらいの時刻（前後1時間半）に見つかったことがあるか
+export function foundAtSameTime(p: Place, hours: FoundHours, now: Date): boolean {
+  const h = now.getHours() + now.getMinutes() / 60;
+  return (hours[p.name] ?? []).some((x) => Math.min(Math.abs(h - x), 24 - Math.abs(h - x)) <= 1.5);
+}
+
+export function scorePlaces(places: Place[], found: FoundCounts = {}, now = new Date(), hours: FoundHours = {}) {
   const band = timeBand(now);
   return places
     .map((p) => ({
       place: p,
-      score: p.base + (p.bands?.[band] ?? 0) + hourBonus(p, now) + Math.min(found[p.name] ?? 0, 5) * 12,
+      score:
+        p.base +
+        (p.bands?.[band] ?? 0) +
+        hourBonus(p, now) +
+        Math.min(found[p.name] ?? 0, 5) * 12 +
+        (foundAtSameTime(p, hours, now) ? 25 : 0),
     }))
     .sort((a, b) => {
       // 体まわりは常に先（いちばん手軽に確かめられるため）

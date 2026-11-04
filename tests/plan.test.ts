@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { parseActivitiesText, parsePlacesText } from "../lib/places";
 import { clueFromRerank, hasClue, initialPlan, matchActivity, matchSpokenPlace, moveToFront, question } from "../lib/plan";
-import { foundAnswer } from "../lib/normalize";
+import { answerWhileWaiting, foundAnswer, isQuickAnswer } from "../lib/normalize";
 
 const home = parsePlacesText(`物置の棚 | 物置の棚の上を見てください | 16
 居間のテーブル | 居間のテーブルの上を見てください
@@ -84,5 +84,35 @@ assert.equal(foundAnswer("あった"), "found");
 assert.equal(foundAnswer("なかった"), "not");
 // 取り消し・言い直し
 for (const t of ["さっきの取り消し", "違う", "間違えた", "今のなし"]) assert.equal(foundAnswer(t), "undo", t);
+
+// 休みたいときは「休む」で終われる
+for (const t of ["休む", "もういい", "疲れた"]) assert.equal(foundAnswer(t), "rest", t);
+
+// 探しに行っている間: 短い言い切りだけを答えにし、つぶやきや長い話は聞き流す
+assert.equal(answerWhileWaiting("あった"), "found");
+assert.equal(answerWhileWaiting("えーと、なかったよ"), "not");
+assert.equal(answerWhileWaiting("あったわ"), "found");
+assert.equal(answerWhileWaiting("どこかなあ"), null);
+assert.equal(answerWhileWaiting("さっきテレビであったニュースの話なんだけどね"), null);
+assert.equal(answerWhileWaiting(""), null);
+
+// 短い答えなら長く待たずに区切る（長い話は区切らない）
+for (const t of ["はい", "いいえ", "あった", "なかった"]) assert.equal(isQuickAnswer(t), true, t);
+assert.equal(isQuickAnswer("さっき新聞を読んでたけど"), false);
+assert.equal(isQuickAnswer("はいはいそれでね台所のほうに"), false);
+
+// 探した記録をもとに順番と理由を決める: 前に同じ時間帯で見つかった場所が先に来て、理由を言う
+{
+  const at10 = new Date(2026, 10, 6, 10, 0);
+  const plain = initialPlan({ home, found: {}, now: at10, clue: null });
+  const withRecord = initialPlan({ home, found: { 台所: 1 }, hours: { 台所: [10] }, now: at10, clue: null });
+  const idx = (steps: { place: { name: string } }[]) => names(steps).indexOf("台所");
+  assert.ok(idx(withRecord.first) < idx(plain.first));
+  assert.equal(withRecord.first[idx(withRecord.first)].reason, "前もこの時間に、台所で見つかりました");
+  // 時間帯が違えば「前は〜で見つかりました」
+  const at20 = new Date(2026, 10, 6, 20, 0);
+  const other = initialPlan({ home, found: { 台所: 1 }, hours: { 台所: [10] }, now: at20, clue: null });
+  assert.equal(other.first.find((s) => s.place.name === "台所")?.reason, "前は台所で見つかりました");
+}
 
 console.log("ok: plan tests passed");

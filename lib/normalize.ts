@@ -29,12 +29,39 @@ const UNDO = ["取り消", "とりけし", "取消", "間違", "まちが", "違
 const FOUND = ["あった", "有った", "あります", "ありました", "見つけた", "見つかった", "みつけた", "みつかった", "これだ", "ここだ"];
 const PLAIN_YES = ["はい", "うん", "ええ", "そう"];
 
-export function foundAnswer(text: string): "found" | "not" | "unsure" | "undo" | null {
+// 「休む」「もういい」は、今日はここまでにしたいという合図
+const REST = ["休む", "やすむ", "休みたい", "休もう", "休憩", "やめる", "やめよう", "やめたい", "もういい", "疲れた", "つかれた"];
+
+export type FoundKind = "found" | "not" | "unsure" | "undo" | "rest";
+
+export function foundAnswer(text: string): FoundKind | null {
   const t = text.replace(/\s+/g, "");
   if (!t) return null;
   if (UNDO.some((w) => t.includes(w))) return "undo";
+  if (REST.some((w) => t.includes(w))) return "rest";
   if (NOT_FOUND.some((w) => t.includes(w))) return "not";
   if (FOUND.some((w) => t.includes(w))) return "found";
   if (PLAIN_YES.some((w) => t.includes(w))) return "unsure";
   return null;
+}
+
+// 言いよどみや語尾を取り除いた「芯」の部分
+const FILLER_WORDS = /えーと|えっと|ええと|えー|あのー|あの|うーん|んー|あー|ああ|おー|ほら|なあ|なぁ|ねえ|ねぇ|かな|だな|だね|だよ|です|ね|よ|わ|[\s、。！!？?ー…・]/g;
+export function coreOf(text: string): string {
+  return text.replace(FILLER_WORDS, "");
+}
+
+// 探しに行っている間に聞こえた声を、答えとして扱うかどうか。
+// 歩きながらのつぶやきやテレビの声（長い話）は拾わず、「あった」「なかったよ」くらいの短い言い切りだけを答えにする
+export function answerWhileWaiting(text: string): FoundKind | null {
+  const c = coreOf(text);
+  if (!c || c.length > 10) return null;
+  return foundAnswer(c);
+}
+
+// 「はい」「いいえ」「あった」などの短い答えだと分かったか（分かったら長く待たずに区切る）
+export function isQuickAnswer(text: string): boolean {
+  const c = coreOf(text);
+  if (!c || c.length > 6) return false;
+  return yesNo(c) !== null || foundAnswer(c) !== null;
 }
