@@ -145,6 +145,13 @@ export function routineReason(r: RoutineEntry): string {
   return `さっきは${timePhrase(r.activity)}だったので、${r.placeName}かもしれません`;
 }
 
+// 朝早く、前の日の夕方以降の日課の場所を案内するときの理由。
+// 「きのうの新聞のあと、居間のテーブルに置いたままかもしれません」「きのう寝るとき、寝室に置いたままかもしれません」
+export function leftoverReason(r: RoutineEntry): string {
+  const verb = timePhrase(r.activity) === `${r.activity}時間`;
+  return `${verb ? `きのう${r.activity}とき` : `きのうの${r.activity}のあと`}、${r.placeName}に置いたままかもしれません`;
+}
+
 const KEY = "dokoitta-routine";
 
 export function loadRoutineText(): string | null {

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { parseActivitiesText, parsePlacesText } from "../lib/places";
 import { clueFromRerank, hasClue, initialPlan, matchActivity, matchSpokenPlace, moveToFront, question } from "../lib/plan";
-import { allSettingPlaces, parseRoutineText, recentRoutine, routineReason, unreadRoutineLines, withRoutinePlaces, timePhrase } from "../lib/routine";
+import { allSettingPlaces, leftoverReason, parseRoutineText, recentRoutine, routineReason, unreadRoutineLines, withRoutinePlaces, timePhrase } from "../lib/routine";
 import { effectiveTime } from "../lib/trytime";
 import { answerWhileWaiting, echoOf, foundAnswer, isQuickAnswer, looksLikeReadAloud, quickWaitMs } from "../lib/normalize";
 import { DEFAULT_PROFILE, lookQuestion, parseDeskText, SAMPLE_DESK_TEXT } from "../lib/profile";
@@ -228,12 +228,24 @@ assert.ok(!/あった|なかった/.test(P.explain + P.reprompt));
   // 午前中は、前の日の夕方から夜の日課の場所も早めに見る
   const at8 = initialPlan({ home: all, found: {}, now: new Date(2026, 10, 6, 8, 0), clue: null, routine: parsed });
   const n8 = at8.first.map((s) => s.place.name);
-  assert.deepEqual(n8.slice(0, 4), ["頭の上・首元・ポケット", "台所", "寝室", "物置の棚"]);
+  // 朝早く（今日の日課がまだ1つ）は、前の日の夕方以降の場所を古い順に先に
+  assert.deepEqual(n8.slice(0, 4), ["頭の上・首元・ポケット", "物置の棚", "台所", "寝室"]);
+  assert.equal(at8.first[1].reason, "きのうの片づけのあと、物置の棚に置いたままかもしれません");
   // 朝の日課がいくつも済んでいても、前の日の夕方の場所が、よく置く場所より前に来る
   const r3 = parseRoutineText("6:00 > 顔を洗う > 洗面所\n7:00 > 朝ごはん > 台所\n8:00 > 新聞 > 居間\n15:30 > 片づけ > 物置の棚\n21:00 > 寝る > 寝室", home);
   const h3 = allSettingPlaces(home, r3, []);
   const at10b = initialPlan({ home: h3, found: {}, now: new Date(2026, 10, 6, 10, 0), clue: null, routine: r3 });
-  assert.deepEqual(at10b.first.map((s) => s.place.name).slice(1, 6), ["居間のテーブル", "台所", "洗面所", "寝室", "物置の棚"]);
+  assert.deepEqual(at10b.first.map((s) => s.place.name).slice(1, 6), ["居間のテーブル", "台所", "洗面所", "物置の棚", "寝室"]);
+  // 朝5時、これからする日課の場所（机）に取りに行って「ない」→ 前の日の夕方の場所が先、机の場所はそのあと
+  const r5 = parseRoutineText("5:00 > 書きもの > 机\n7:00 > 朝ごはん > 台所\n15:30 > 片づけ > 物置の棚\n18:00 > 夕ごはん > 台所\n20:00 > 歯をみがく > 洗面所", home);
+  const h5 = allSettingPlaces(home, r5, []);
+  const at5b = initialPlan({ home: h5, found: {}, now: new Date(2026, 10, 6, 5, 0), clue: null, routine: r5 });
+  assert.deepEqual(at5b.first.map((s) => s.place.name).slice(1, 5), ["物置の棚", "台所", "洗面所", "机"]);
+  assert.equal(question({ step: at5b.first[1], explain: false }), "きのうの片づけのあと、物置の棚に置いたままかもしれません。物置の棚の上を見てください。");
+  // 4時台（今日の日課がまだない）も同じ
+  const at4 = initialPlan({ home: h5, found: {}, now: new Date(2026, 10, 6, 4, 40), clue: null, routine: r5 });
+  assert.equal(at4.first[1].place.name, "物置の棚");
+  assert.equal(leftoverReason(r5[4]), "きのう歯をみがくとき、洗面所に置いたままかもしれません");
   // 午後は今日の日課から（前の日の夕方は早めにしない）
   const at14 = initialPlan({ home: all, found: {}, now: new Date(2026, 10, 6, 14, 0), clue: null, routine: parsed });
   assert.equal(at14.first[1].place.name, "台所");

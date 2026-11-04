@@ -4,7 +4,7 @@
 // 3. 置いた場所: 手がかり（話に出たら先頭へ）→ 一日の流れ（今日もう始まった日課のうち新しいものから最大3か所。
 //    探す時刻と置いた時刻はちがうため。最初の場所だけ理由を言う）→ よく置く場所（4か所、記録で並べ替え）→ 残り
 import { BODY_CHECK, aliases, findPlaceByName, type Activity, type Place } from "./places";
-import { recentRoutine, routineReason, type RoutineEntry } from "./routine";
+import { leftoverReason, recentRoutine, routineReason, type RoutineEntry } from "./routine";
 
 export { aliases };
 import { foundAtSameTime, hourHit, mergeOrder, scorePlaces, type FoundCounts, type FoundHours } from "./rank";
@@ -90,24 +90,28 @@ export function initialPlan(opts: {
   first.push({ place: BODY_CHECK, reason: "" });
   const used = new Set<Place>(cluePlace ? [cluePlace] : []);
   if (hasRoutine) {
-    const recent = recentRoutine(opts.routine!, opts.now)
-      .map((r) => ({ r, place: scored.find((p) => p.name === r.placeName) }))
-      .filter((x): x is { r: RoutineEntry; place: Place } => !!x.place && !used.has(x.place))
-      .slice(0, 3);
-    recent.forEach((x, i) => {
-      used.add(x.place);
-      first.push({ place: x.place, reason: i === 0 ? routineReason(x.r) : "" });
-    });
-    // 午前中は、前の日の夕方から夜の日課の場所も早めに見る（前の日に置いたまま、次の日に探すことがあるため）。新しい日課から
+    const routine = opts.routine!;
     const m = opts.now.getHours() * 60 + opts.now.getMinutes();
-    if (m < MORNING_END) {
-      for (const r of [...opts.routine!].reverse()) {
-        if (r.minutes < EVENING_FROM || r.minutes <= m || !r.placeName) continue;
-        const place = scored.find((p) => p.name === r.placeName);
-        if (!place || used.has(place)) continue;
-        used.add(place);
-        first.push({ place, reason: "" });
-      }
+    const toPlace = (r: RoutineEntry) => (r.placeName ? scored.find((p) => p.name === r.placeName) : undefined);
+    const take = (r: RoutineEntry, reason: (r: RoutineEntry) => string) => {
+      const place = toPlace(r);
+      if (!place || used.has(place)) return;
+      first.push({ place, reason: used.size === (cluePlace ? 1 : 0) ? reason(r) : "" });
+      used.add(place);
+    };
+    // 前の日の夕方以降の日課（古い順）。夜は老眼鏡を使わないことも多いので、夕方に置いたまま次の朝に気づくことが多い
+    const lastEvening = routine.filter((r) => r.minutes >= EVENING_FROM && r.minutes > m);
+    const todayStarted = routine.filter((r) => r.minutes <= m && r.placeName);
+    if (m < MORNING_END && todayStarted.length <= 1) {
+      // 朝早く（その日の日課がまだ少ない）: 前の日の夕方以降に、いつもの場所へ戻さず置いてきた場所を先に。
+      // 今日の日課の場所（これからすること。たいていそこへ取りに行って「ない」と気づいた）は、そのあと
+      for (const r of lastEvening) take(r, leftoverReason);
+      for (const r of todayStarted) take(r, routineReason);
+    } else {
+      // 今日もう始まった日課のうち、いちばん最近のものの場所から（最大3か所）
+      recentRoutine(routine, opts.now).slice(0, 3).forEach((r) => take(r, routineReason));
+      // 午前中は、前の日の夕方以降の場所もそのあとに早めに
+      if (m < MORNING_END) for (const r of lastEvening) take(r, leftoverReason);
     }
   }
   const others = scored.filter((p) => !used.has(p));
