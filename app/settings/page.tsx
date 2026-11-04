@@ -98,8 +98,8 @@ export default function Settings() {
         </div>
       )}
 
-      <div className="card" style={{ fontSize: 20 }}>
-        <strong>設定を写す</strong>
+      <details className="card" style={{ fontSize: 20 }}>
+        <summary>設定を写す（ふだんは使いません）</summary>
         <p style={{ margin: "8px 0" }}>
           ホーム画面のアイコンから開いたアプリと、Safari で開いたページは、設定が別々に保存されます。
           Safari で入れた設定は「設定をコピー」を押し、アイコンから開いたアプリの設定画面（最初の画面の左下「⚙ 家族用」を長押し）で、下の欄に貼り付けて「読み込む」を押してください。
@@ -154,7 +154,7 @@ export default function Settings() {
         </div>
         <textarea value={transfer} onChange={(e) => setTransfer(e.target.value)} rows={3} style={{ ...area, marginTop: 8, fontSize: 14 }} placeholder="ここに貼り付け" />
         {transferMsg && <p style={{ margin: 0 }}>{transferMsg}</p>}
-      </div>
+      </details>
 
       <h2>0. 本人への言い方と、老眼鏡の見た目</h2>
       <div className="card" style={{ fontSize: 22, display: "grid", gap: 12 }}>
