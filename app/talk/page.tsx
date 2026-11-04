@@ -65,6 +65,23 @@ async function rerank(utterance: string, candidates: Place[], hour = new Date().
   }
 }
 
+// 家族用の設定への入口。ホーム画面のアイコンから開いたアプリは Safari と設定が別に保存されるので、
+// アプリの中から設定を開けるようにする。本人がうっかり押さないよう、長押し（1.5秒）で開く
+function FamilyCorner() {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const start = () => {
+    timer.current = setTimeout(() => (window.location.href = "/settings"), 1500);
+  };
+  const cancel = () => {
+    if (timer.current) clearTimeout(timer.current);
+  };
+  return (
+    <button className="family-corner" onPointerDown={start} onPointerUp={cancel} onPointerLeave={cancel} onContextMenu={(e) => e.preventDefault()}>
+      ⚙ 家族用（長押し）
+    </button>
+  );
+}
+
 export default function Talk() {
   const [stage, setStage] = useState<Stage>("idle");
   const [listening, setListening] = useState(false);
@@ -107,7 +124,7 @@ export default function Talk() {
 
   // 答えを待つ。声かボタンの早い方。黙っている間・つぶやき・テレビの声・読み上げは聞き流す。
   // waitMs 過ぎたら一度だけ「どうでしたか。」と言い、同じだけ待つ。それでもなければ ans: null
-  const waitAnswer = async (opts: { waitMs: number; kind: "found" | "yesno"; reprompt?: boolean; screenWords: string[] }): Promise<FoundAns> => {
+  const waitAnswer = async (opts: { waitMs: number; kind: "found" | "yesno"; reprompt?: boolean; screenWords: string[]; onClue?: (text: string) => void }): Promise<FoundAns> => {
     setButtons(opts.kind);
     let done = false;
     const byButton = new Promise<FoundAns>((res) => (pending.current = res));
@@ -145,8 +162,9 @@ export default function Talk() {
           if (ans) return { ans, text: r.text };
           // 「なかった。そういえば本を読んでた」のように、答えと手がかりが一緒の話
           if (r.text.length <= 40 && foundAnswer(r.text) === "not" && hasClue(r.text)) return { ans: "not", text: r.text };
-          // 場所や、していたことの話（手がかり）
-          if (r.text.length <= 40 && hasClue(r.text)) return { ans: null, text: r.text };
+          // 場所や、していたことの話（手がかり）。ここで次に進めてしまうと、独り言のたびに勝手に進むので、
+          // 順番だけ入れ替えて、いまの場所の答えを待ち続ける
+          if (r.text.length <= 40 && hasClue(r.text)) opts.onClue?.(r.text);
         }
         if (!done && round === 0 && rounds > 1) await say(P.reprompt);
       }
@@ -218,7 +236,16 @@ export default function Talk() {
       await say(prefix + q);
       prefix = "";
       const near = !!step.place.near;
-      let a = await waitAnswer({ waitMs: near ? NEAR_WAIT_MS : FAR_WAIT_MS, kind: "found", screenWords: [step.place.name] });
+      // 待っている間の手がかりの話は、残りの順番だけ入れ替える（いまの場所は答えを待ち続ける）
+      const onClue = async (text: string) => {
+        rec.utterances.push(text);
+        const c = await findClue(text, queue.map((s) => s.place).filter((p) => !p.body && !p.desk));
+        if (c) {
+          queue = moveToFront(queue, [], c).queue;
+          log(`手がかり: ${queue[0]?.place.name}`);
+        }
+      };
+      let a = await waitAnswer({ waitMs: near ? NEAR_WAIT_MS : FAR_WAIT_MS, kind: "found", screenWords: [step.place.name], onClue });
 
       if (a.ans === "undo") {
         // ひとつ前の場所の答えを取り消して、もう一度
@@ -269,11 +296,7 @@ export default function Talk() {
       if (a.ans === "not") prefix = echoOf("not");
       // 「なかった」だけなら手がかりではない。「なかった。そういえば本を読んでた」のように話が続いたときだけ
       const extra = a.text.replace(/なかった|無かった|ない|無い|ありません|見つからない|みつからない|いいえ/g, "");
-      if (a.text && (a.ans === null || hasClue(extra))) {
-        rec.utterances.push(a.text);
-        const c = await findClue(a.text, queue.map((s) => s.place).filter((p) => !p.body && !p.desk));
-        if (c) queue = moveToFront(queue, [], c).queue;
-      }
+      if (a.ans === "not" && hasClue(extra)) await onClue(a.text);
       saveRecord(rec);
     }
     await finish("all-checked", P.allChecked, ["ひととおり", "見ました"]);
@@ -315,6 +338,7 @@ export default function Talk() {
             <span className="line">ここを押すと</span>
             <span className="line">{stage === "pressed" ? "はじめます" : "さがしはじめます"}</span>
           </button>
+          {stage === "idle" && <FamilyCorner />}
         </div>
       )}
 

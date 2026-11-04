@@ -99,3 +99,4 @@ main.talk-page.start { background: #ffffff; }
 .big-button.sub { background: #ffffff; color: var(--fg); border: 4px solid #9a9a9a; box-shadow: 0 6px 0 #9a9a9a; min-height: clamp(64px, 9dvh, 96px); font-size: clamp(26px, 4dvh, 36px); margin: 0; }
 .talk-bottom .big-button { box-shadow: 0 6px 0 rgba(0,0,0,0.25); margin: 0; }
 .said-line { font-size: clamp(26px, 4.5dvh, 44px); font-weight: bold; line-height: 1.45; color: #444; max-width: 24em; }
+.family-corner { position: fixed; left: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); font-size: 18px; color: #9a9a9a; background: transparent; border: 1px solid #ddd; border-radius: 12px; padding: 8px 12px; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }

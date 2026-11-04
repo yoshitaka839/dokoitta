@@ -37,6 +37,8 @@ export default function Settings() {
   const [profile, setProfile] = useState<Profile>(DEFAULT_PROFILE);
   const [deskText, setDeskText] = useState("");
   const [awakeOk, setAwakeOk] = useState(true);
+  const [transfer, setTransfer] = useState("");
+  const [transferMsg, setTransferMsg] = useState("");
 
   useEffect(() => {
     setProfile(loadProfile());
@@ -95,6 +97,64 @@ export default function Settings() {
           この iPad では、探している間に画面を消さない仕組みが使えません。設定アプリの「画面表示と明るさ → 自動ロック」を長め（10分など）にしてください。
         </div>
       )}
+
+      <div className="card" style={{ fontSize: 20 }}>
+        <strong>設定を写す</strong>
+        <p style={{ margin: "8px 0" }}>
+          ホーム画面のアイコンから開いたアプリと、Safari で開いたページは、設定が別々に保存されます。
+          Safari で入れた設定は「設定をコピー」を押し、アイコンから開いたアプリの設定画面（最初の画面の左下「⚙ 家族用」を長押し）で、下の欄に貼り付けて「読み込む」を押してください。
+        </p>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <button
+            className="big-button sub"
+            style={{ width: "auto", padding: "0 20px", minHeight: 56, fontSize: 22 }}
+            onClick={async () => {
+              const keys = ["dokoitta-home-places", "dokoitta-activities", "dokoitta-routine", "dokoitta-profile", "dokoitta-desk"];
+              const data: Record<string, string | null> = {};
+              for (const k of keys) {
+                try {
+                  data[k] = localStorage.getItem(k);
+                } catch {
+                  data[k] = null;
+                }
+              }
+              const t = JSON.stringify({ dokoitta: 1, data });
+              setTransfer(t);
+              try {
+                await navigator.clipboard.writeText(t);
+                setTransferMsg("コピーしました。");
+              } catch {
+                setTransferMsg("下の欄の文字を全部選んでコピーしてください。");
+              }
+            }}
+          >
+            設定をコピー
+          </button>
+          <button
+            className="big-button sub"
+            style={{ width: "auto", padding: "0 20px", minHeight: 56, fontSize: 22 }}
+            onClick={() => {
+              try {
+                const j = JSON.parse(transfer);
+                if (j?.dokoitta !== 1 || typeof j.data !== "object") throw new Error("形式");
+                for (const [k, v] of Object.entries(j.data as Record<string, string | null>)) {
+                  if (!k.startsWith("dokoitta-")) continue;
+                  if (v === null) localStorage.removeItem(k);
+                  else localStorage.setItem(k, String(v));
+                }
+                setTransferMsg("読み込みました。画面を読み込み直します。");
+                setTimeout(() => window.location.reload(), 800);
+              } catch {
+                setTransferMsg("読み込めませんでした。コピーした文字をそのまま貼り付けてください。");
+              }
+            }}
+          >
+            読み込む
+          </button>
+        </div>
+        <textarea value={transfer} onChange={(e) => setTransfer(e.target.value)} rows={3} style={{ ...area, marginTop: 8, fontSize: 14 }} placeholder="ここに貼り付け" />
+        {transferMsg && <p style={{ margin: 0 }}>{transferMsg}</p>}
+      </div>
 
       <h2>0. 本人への言い方と、老眼鏡の見た目</h2>
       <div className="card" style={{ fontSize: 22, display: "grid", gap: 12 }}>
