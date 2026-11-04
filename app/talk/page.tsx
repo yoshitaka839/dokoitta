@@ -5,11 +5,12 @@
 //  → 押したら質問せず、すぐ1か所目: 机の気づきにくい場所（2か所）→ 体のまわり → 置いた場所（日課・記録）
 //  →「なかった」なら短く返してすぐ次へ。「あった」なら見た目を確かめて「ありましたね。覚えておきます。」
 //  → あきらめ・返事なしは「わかりました。次に見るなら、〜です。」で終え、家族ページに残す
-// 言葉は短く。画面には場所の名前だけを大きく出し、アプリが話す文は出さない（読み上げると答えに聞こえるため）。
+// 言葉は短く。画面には場所の名前を大きく、その下にアプリが話した文を出す（聞きそびれたときに読み返せるように）。
+// 本人がそれを読み上げても答えにしないよう、この回に話した文と似た言葉は答えとして受け取らない。
 // 「必ず見つかる」とは言わない。
 
 import { useEffect, useRef, useState } from "react";
-import { beep, canListen, keepAwake, listen, prepareBeep, speak, stopListening } from "@/lib/voice";
+import { beep, canListen, keepAwake, listen, prepareBeep, primeSpeech, speak, stopListening } from "@/lib/voice";
 import { answerWhileWaiting, echoOf, foundAnswer, looksLikeReadAloud, quickWaitMs, yesNo, type FoundKind } from "@/lib/normalize";
 import { BODY_CHECK, getActivities, getHomePlaces, usingSamplePlaces, type Place } from "@/lib/places";
 import { effectiveTime, loadTryTime } from "@/lib/trytime";
@@ -88,10 +89,12 @@ export default function Talk() {
   const log = (s: string) => console.log(`[どこいった] ${s}`);
 
   // 話している間は聞き取らない（自分の声を答えにしない）
+  const [said, setSaid] = useState(""); // アプリが話している文（聞きそびれたときに読み返せるよう画面にも出す）
   const say = async (text: string) => {
     if (!text) return;
     stopListening();
     setListening(false);
+    setSaid(text);
     saidSoFar.current = [text, ...saidSoFar.current].slice(0, 20);
     await speak(text);
   };
@@ -279,11 +282,12 @@ export default function Talk() {
   const begin = async () => {
     if (running.current) return;
     running.current = true;
-    setStage("pressed"); // 押したらすぐ見た目が変わる
+    // ここまでは await をはさまない（iPad は、押したその場で読み上げと音を始めないと声が出ないため）
+    primeSpeech();
     prepareBeep();
     beep();
-    const awake = await keepAwake(true);
-    log(awake ? "画面を消さない仕組み: オン" : "画面を消さない仕組み: 使えない");
+    setStage("pressed"); // 押したらすぐ見た目が変わる
+    keepAwake(true).then((ok) => log(ok ? "画面を消さない仕組み: オン" : "画面を消さない仕組み: 使えない"));
     try {
       setStage("searching");
       await search();
@@ -318,6 +322,7 @@ export default function Talk() {
         <div className="talk">
           <div className="talk-top">
             <div className={`now-place ${heardFlash ? "flash" : ""}`}>{current?.name ?? ""}</div>
+            {said && <div className="said-line">{said}</div>}
             <div className={`mic ${listening ? "on" : ""} ${heardFlash ? "ok" : ""}`}>{heardFlash ? "✓" : "🎤"}</div>
           </div>
           <div className="talk-bottom">

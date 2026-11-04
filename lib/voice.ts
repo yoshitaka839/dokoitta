@@ -30,6 +30,20 @@ export function speak(text: string, rate = 0.85): Promise<void> {
   });
 }
 
+// iPad は、ボタンを押したその場（await をはさむ前）で一度読み上げを呼ばないと、あとの声が出ない。
+// 押した瞬間に音量0の短い読み上げを呼んで、声を出せる状態にしておく
+export function primeSpeech() {
+  try {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    const u = new SpeechSynthesisUtterance("。");
+    u.lang = "ja-JP";
+    u.volume = 0;
+    window.speechSynthesis.speak(u);
+  } catch {
+    /* 声が出なくても流れは止めない */
+  }
+}
+
 export type ListenResult = { text: string; error?: string };
 
 let currentRec: { stop: () => void } | null = null;
