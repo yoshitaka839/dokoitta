@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { parseActivitiesText, parsePlacesText } from "../lib/places";
 import { clueFromRerank, hasClue, initialPlan, matchActivity, matchSpokenPlace, moveToFront, question } from "../lib/plan";
-import { parseRoutineText, recentRoutine, routineReason, withRoutinePlaces, afterPhrase } from "../lib/routine";
+import { parseRoutineText, recentRoutine, routineReason, withRoutinePlaces, timePhrase } from "../lib/routine";
 import { effectiveTime } from "../lib/trytime";
 import { answerWhileWaiting, echoOf, foundAnswer, isQuickAnswer, looksLikeReadAloud, quickWaitMs } from "../lib/normalize";
 import { DEFAULT_PROFILE, lookQuestion, parseDeskText, SAMPLE_DESK_TEXT } from "../lib/profile";
@@ -144,19 +144,22 @@ assert.equal(echoOf("found"), "");
   assert.deepEqual(recentRoutine(routine, at10).map((r) => r.placeName).slice(0, 3), ["居間のテーブル", "台所", "玄関"]);
   const p = initialPlan({ home: h, found: {}, now: at10, clue: null, routine });
   assert.deepEqual(names(p.first).slice(0, 4), ["頭の上・首元・ポケット", "居間のテーブル", "台所", "玄関"]);
-  assert.equal(p.first[1].reason, "新聞のあとなので、居間のテーブルかもしれません");
+  assert.equal(p.first[1].reason, "さっきは新聞の時間だったので、居間のテーブルかもしれません");
   // 日課があるときは、場所の一覧の「怪しい時刻」（物置の棚 16時）は使わない
   const p16 = initialPlan({ home: h, found: {}, now: at16, clue: null, routine });
   assert.equal(p16.first[1].place.name, "物置の棚");
-  assert.equal(p16.first[1].reason, "片づけのあとなので、物置の棚かもしれません");
+  assert.equal(p16.first[1].reason, "さっきは片づけの時間だったので、物置の棚かもしれません");
   // 朝早くは前の日の夜の日課へさかのぼる
   const at5 = new Date(2026, 10, 6, 5, 0);
   assert.equal(recentRoutine(routine, at5)[0].placeName, "玄関");
   // 話の手がかりはこれまでどおり最優先
   const clue = matchActivity("出かけようとしてた", acts, h)!;
   assert.equal(names(initialPlan({ home: h, found: {}, now: at10, clue, routine }).first)[0], "玄関");
-  assert.equal(routineReason(routine[6]), "寝たあとなので、寝室かもしれません");
-  assert.equal(afterPhrase("顔を洗う"), "顔を洗ったあと");
+  assert.equal(routineReason(routine[6]), "さっきは寝る時間だったので、寝室かもしれません");
+  assert.equal(timePhrase("顔を洗う"), "顔を洗う時間");
+  assert.equal(timePhrase("テレビ"), "テレビの時間");
+  assert.equal(timePhrase("おやつ"), "おやつの時間");
+  assert.equal(timePhrase("昼ごはん"), "昼ごはんの時間");
   // 「時刻 日課 > 場所」の書き方も読める
   const r2 = parseRoutineText("７：３０ 朝ごはん > 台所\n9:00 散歩 > そのまま", home);
   assert.deepEqual(r2.map((r) => [r.time, r.activity, r.placeName]), [["7:30", "朝ごはん", "台所"], ["9:00", "散歩", null]]);

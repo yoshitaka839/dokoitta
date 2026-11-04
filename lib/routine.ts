@@ -108,19 +108,17 @@ export function recentRoutine(routine: RoutineEntry[], now: Date): RoutineEntry[
   return out;
 }
 
-// 日課の名前を「〜のあと」「〜たあと」の形にする（「新聞」→「新聞のあと」、「顔を洗う」→「顔を洗ったあと」）
-const PAST: [RegExp, string][] = [
-  [/する$/, "した"], [/くる$/, "きた"], [/る$/, "た"], [/う$/, "った"], [/つ$/, "った"],
-  [/く$/, "いた"], [/ぐ$/, "いだ"], [/す$/, "した"], [/[むぶぬ]$/, "んだ"],
-];
-export function afterPhrase(a: string): string {
-  for (const [re, rep] of PAST) if (re.test(a)) return `${a.replace(re, rep)}あと`;
-  return `${a}のあと`;
+// 日課の名前を「〜の時間」の形にする（「新聞」→「新聞の時間」、「顔を洗う」→「顔を洗う時間」）。
+// 「〜のあと」は日課の名前によって不自然になる（「新聞のあと」など）ので、どの日課でも言える「さっきは〜の時間だった」にする。
+// 漢字を含み、う段のかなで終わるものは動詞として「の」を付けない（「おやつ」のようなかなだけの名前は名詞として扱う）
+export function timePhrase(a: string): string {
+  const verb = /[うくぐすつぬぶむる]$/.test(a) && /[\u4e00-\u9fff]/.test(a);
+  return verb ? `${a}時間` : `${a}の時間`;
 }
 
-// 「テレビのあとなので、テレビのそばかもしれません」「寝たあとなので、〜」
+// 「さっきは新聞の時間だったので、居間のテーブルかもしれません」「さっきは寝る時間だったので、〜」
 export function routineReason(r: RoutineEntry): string {
-  return `${afterPhrase(r.activity)}なので、${r.placeName}かもしれません`;
+  return `さっきは${timePhrase(r.activity)}だったので、${r.placeName}かもしれません`;
 }
 
 const KEY = "dokoitta-routine";
