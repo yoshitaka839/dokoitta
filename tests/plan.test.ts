@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { parseActivitiesText, parsePlacesText } from "../lib/places";
 import { clueFromRerank, hasClue, initialPlan, matchActivity, matchSpokenPlace, moveToFront, question } from "../lib/plan";
-import { answerWhileWaiting, foundAnswer, isQuickAnswer } from "../lib/normalize";
+import { answerWhileWaiting, echoOf, foundAnswer, isQuickAnswer, startsWithAck } from "../lib/normalize";
 
 const home = parsePlacesText(`物置の棚 | 物置の棚の上を見てください | 16
 居間のテーブル | 居間のテーブルの上を見てください
@@ -114,5 +114,13 @@ assert.equal(isQuickAnswer("はいはいそれでね台所のほうに"), false)
   const other = initialPlan({ home, found: { 台所: 1 }, hours: { 台所: [10] }, now: at20, clue: null });
   assert.equal(other.first.find((s) => s.place.name === "台所")?.reason, "前は台所で見つかりました");
 }
+
+// 聞こえた答えは声で短く返す。すでに受け止める言葉で始まる文には重ねない
+assert.equal(echoOf("not"), "なかったんですね。");
+assert.equal(echoOf("found"), "あったんですね。");
+assert.equal(echoOf(true), "はい。");
+assert.equal(echoOf("rest"), "");
+assert.equal(startsWithAck("体のまわりにはなかったですね。"), true);
+assert.equal(startsWithAck("まず、台所のテーブルを見てください"), false);
 
 console.log("ok: plan tests passed");

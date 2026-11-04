@@ -65,3 +65,25 @@ export function isQuickAnswer(text: string): boolean {
   if (!c || c.length > 6) return false;
   return yesNo(c) !== null || foundAnswer(c) !== null;
 }
+
+// 聞こえた答えを、本人の言葉で短く声に出して返す（画面の字は見ないので、声で「聞こえた」を伝える）
+export function echoOf(ans: boolean | FoundKind | null): string {
+  switch (ans) {
+    case true:
+    case "unsure":
+      return "はい。";
+    case false:
+      return "いいえ、ですね。";
+    case "found":
+      return "あったんですね。";
+    case "not":
+      return "なかったんですね。";
+    default:
+      return ""; // 取り消し・休むは、すぐ「わかりました」と返すので不要
+  }
+}
+
+// すでに受け止める言葉で始まる文なら、声の返事を重ねない
+export function startsWithAck(text: string): boolean {
+  return /^(わかりました|体のまわりには|よく置く場所には|あったね|なるほど)/.test(text);
+}

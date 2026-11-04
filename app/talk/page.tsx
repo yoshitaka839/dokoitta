@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { beep, canListen, listen, prepareBeep, speak, stopListening } from "@/lib/voice";
-import { answerWhileWaiting, foundAnswer, isQuickAnswer, understand, yesNo, type FoundKind } from "@/lib/normalize";
+import { answerWhileWaiting, echoOf, foundAnswer, isQuickAnswer, startsWithAck, understand, yesNo, type FoundKind } from "@/lib/normalize";
 import { BODY_CHECK, getActivities, getHomePlaces, type Place } from "@/lib/places";
 import { clueFromRerank, hasClue, initialPlan, matchActivity, matchSpokenPlace, moveToFront, question, type Clue, type Step } from "@/lib/plan";
 import { foundCounts, foundHours, saveRecord, updateLatestFound, type SearchRecord } from "@/lib/history";
@@ -89,15 +89,29 @@ export default function Talk() {
     if (!canListen()) addLog("この端末では聞き取りが使えません（ボタンで答えられます）");
   }, []);
 
+  // 聞こえた答えを次の言葉の頭で声に出して返す（「なかったんですね。」など）
+  const ack = useRef("");
   const say = async (text: string) => {
-    setSaid(text);
+    const a = ack.current;
+    ack.current = "";
+    const t = a && !startsWithAck(text) ? a + text : text;
+    if (!t) return;
+    setSaid(t);
     setStage("speaking");
-    await speak(text);
+    await speak(t);
+  };
+  // 次の言葉まで間があくとき（Claude に聞く間など）は、先に返事だけ言う
+  const flushAck = async () => {
+    if (ack.current) await say("");
   };
 
   // 答えを受け取ったら、すぐ音と表示で知らせる（間があくと、何度も言い直してしまうため）
-  const gotIt = (text: string) => {
-    if (text) setHeard(text);
+  // 父は画面の字を見ないので、音に加えて、声に出した答えをそのまま声で返す（ボタンのときは返さない）
+  const gotIt = (text: string, ans: boolean | FoundKind | null) => {
+    if (text) {
+      setHeard(text);
+      ack.current = echoOf(ans);
+    }
     setHeardOk(true);
     beep();
   };
@@ -122,7 +136,7 @@ export default function Talk() {
       return { ans: yesNo(text), text };
     });
     const a = await Promise.race([byButton, byVoice]);
-    if (a.ans !== null) gotIt(a.text);
+    if (a.ans !== null) gotIt(a.text, a.ans);
     stopListening();
     pendingAnswer.current = null;
     setShowButtons(false);
@@ -173,7 +187,7 @@ export default function Talk() {
     const a = await Promise.race([byButton, byVoice]);
     done = true;
     stopListening();
-    if (a.ans) gotIt(a.text);
+    if (a.ans) gotIt(a.text, a.ans);
     pendingFound.current = null;
     setShowButtons(false);
     setWaiting(false);
@@ -339,6 +353,7 @@ export default function Talk() {
       if (a.text && (a.ans === null || (a.ans === "not" && hasClue(a.text)))) {
         rec.utterances.push(a.text);
         const remaining = [...queue, ...rest].map((s) => s.place).filter((p) => !p.body);
+        await flushAck();
         const c = await findClue(a.text, remaining);
         if (c) {
           const moved = moveToFront(queue, rest, c);
