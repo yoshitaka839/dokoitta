@@ -11,7 +11,8 @@
 import { useEffect, useRef, useState } from "react";
 import { beep, canListen, listen, prepareBeep, speak, stopListening } from "@/lib/voice";
 import { answerWhileWaiting, echoOf, foundAnswer, isQuickAnswer, startsWithAck, understand, yesNo, type FoundKind } from "@/lib/normalize";
-import { BODY_CHECK, getActivities, getHomePlaces, type Place } from "@/lib/places";
+import { BODY_CHECK, getActivities, getHomePlaces, usingSamplePlaces, type Place } from "@/lib/places";
+import { getRoutineText, parseRoutineText, withRoutinePlaces } from "@/lib/routine";
 import { clueFromRerank, hasClue, initialPlan, matchActivity, matchSpokenPlace, moveToFront, question, type Clue, type Step } from "@/lib/plan";
 import { foundCounts, foundHours, saveRecord, updateLatestFound, type SearchRecord } from "@/lib/history";
 
@@ -224,7 +225,10 @@ export default function Talk() {
     setStage("searching");
     setChecked([]);
 
-    const home = getHomePlaces();
+    // 一日の流れ（日課）に出てくる場所も候補に入れる
+    const baseHome = getHomePlaces();
+    const routine = parseRoutineText(getRoutineText(usingSamplePlaces()), baseHome);
+    const home = withRoutinePlaces(baseHome, routine);
     placesRef.current = [BODY_CHECK, ...home];
     const acts = getActivities();
     const now = currentTime();
@@ -257,7 +261,7 @@ export default function Talk() {
     await say("眼鏡を探しているんですね。一緒に探しましょう。");
     const clue = await pendingClue;
     rec.rerankSource = clue?.by === "claude" ? "claude" : "program";
-    const plan = initialPlan({ home, found, now, clue, hours });
+    const plan = initialPlan({ home, found, now, clue, hours, routine });
     let queue: Step[] = plan.first;
     let rest: Step[] = plan.rest;
     addLog(`順番: ${queue.map((s) => s.place.name).join("、")} ／ 残り: ${rest.map((s) => s.place.name).join("、")}`);

@@ -2,23 +2,21 @@
 // 1. 会話に手がかりがあれば、その場所をいちばん先に（設定の「していたこと → 場所」で決める。
 //    設定にない手がかりは Claude が候補の中から選び、理由をそえる）
 // 2. 念のため、体まわり（頭の上・首元・ポケット）を1回の問いかけで確かめる
-// 3. よく置く場所（設定の上から4か所）を点数順に。怪しい時刻なら理由を言う
-// 4. それでもなければ、「ほかの場所も見ますか？」と聞いてから残りの場所へ
+// 3. 一日の流れ（日課）があれば、今日もう始まった日課のうち新しいものから、その場所を（最大3か所）。
+//    探す時刻と置いた時刻はちがうので、「今何時か」ではなく「最後にしていたこと」で決める。最初の場所は理由を言う
+// 4. よく置く場所（設定の上から4か所）を点数順に。日課がないときだけ、怪しい時刻なら理由を言う
+// 5. それでもなければ、残りの場所を続けて案内する
 
-import { BODY_CHECK, type Activity, type Place } from "./places";
+import { BODY_CHECK, aliases, type Activity, type Place } from "./places";
+import { recentRoutine, routineReason, type RoutineEntry } from "./routine";
+
+export { aliases };
 import { foundAtSameTime, hourHit, mergeOrder, scorePlaces, type FoundCounts, type FoundHours } from "./rank";
 
 export type Step = { place: Place; reason: string };
 export type RerankResult = { order: string[]; reason: string; source: "claude" | "program" };
 export type Clue = { placeId: string; reason: string; by: "spoken" | "settings" | "claude" };
 
-// 場所の呼び方のゆれ（「居間のテーブル」→「居間」「テーブル」も同じ場所として聞き取る）
-const GENERIC = new Set(["前", "中", "上", "下", "横", "そば", "まわり", "周り"]);
-export function aliases(p: Place): string[] {
-  if (p.body) return ["頭", "首", "ポケット"];
-  const parts = p.name.split("の").filter((x) => x.length >= 2 && !GENERIC.has(x));
-  return [...new Set([p.name, ...parts])];
-}
 
 // 本人がその場で場所を言ったら、登録のつながりより優先する。
 // 「〜じゃなくて」「〜ではなく」の前の場所は打ち消しなので数えない
@@ -62,8 +60,8 @@ export function clueFromRerank(rr: RerankResult | null, candidates: Place[]): Cl
 }
 
 // 探した記録をもとにした理由（「学習」ではなく、家族と本人が残した記録を順番に使う）
-export function programReason(p: Place, found: FoundCounts, now: Date, hours: FoundHours = {}): string {
-  const h = hourHit(p, now);
+export function programReason(p: Place, found: FoundCounts, now: Date, hours: FoundHours = {}, useHours = true): string {
+  const h = useHours ? hourHit(p, now) : null;
   if (h !== null) return `${h}時ごろなので、${p.name}かもしれません`;
   if (foundAtSameTime(p, hours, now)) return `前もこの時間に、${p.name}で見つかりました`;
   if ((found[p.name] ?? 0) > 0) return `前は${p.name}で見つかりました`;
@@ -76,15 +74,30 @@ export function initialPlan(opts: {
   now: Date;
   clue?: Clue | null;
   hours?: FoundHours;
+  routine?: RoutineEntry[];
 }): { first: Step[]; rest: Step[] } {
-  const scored = scorePlaces(opts.home, opts.found, opts.now, opts.hours).map((s) => s.place);
+  const hasRoutine = !!opts.routine?.length;
+  // 日課があるときは、場所の一覧の「怪しい時刻」は使わない（日課の時刻と食い違わないように）
+  const useHours = !hasRoutine;
+  const scored = scorePlaces(opts.home, opts.found, opts.now, opts.hours, useHours).map((s) => s.place);
   const cluePlace = opts.clue ? scored.find((p) => p.id === opts.clue!.placeId) : undefined;
-  const others = scored.filter((p) => p !== cluePlace);
-  const step = (p: Place): Step => ({ place: p, reason: programReason(p, opts.found, opts.now, opts.hours) });
+  const step = (p: Place): Step => ({ place: p, reason: programReason(p, opts.found, opts.now, opts.hours, useHours) });
 
   const first: Step[] = [];
   if (cluePlace) first.push({ place: cluePlace, reason: opts.clue!.reason });
   first.push({ place: BODY_CHECK, reason: "" });
+  const used = new Set<Place>(cluePlace ? [cluePlace] : []);
+  if (hasRoutine) {
+    const recent = recentRoutine(opts.routine!, opts.now)
+      .map((r) => ({ r, place: scored.find((p) => p.name === r.placeName) }))
+      .filter((x): x is { r: RoutineEntry; place: Place } => !!x.place && !used.has(x.place))
+      .slice(0, 3);
+    recent.forEach((x, i) => {
+      used.add(x.place);
+      first.push({ place: x.place, reason: i === 0 ? routineReason(x.r) : "" });
+    });
+  }
+  const others = scored.filter((p) => !used.has(p));
   first.push(...others.filter((p) => p.main).map(step));
   return { first, rest: others.filter((p) => !p.main).map(step) };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-// 家族用の設定。家の場所と「していたこと → 場所」のつながりを、この iPad の中にだけ保存する。
+// 家族用の設定。家の場所・「していたこと → 場所」のつながり・一日の流れを、この iPad の中にだけ保存する。
 // サーバーにも GitHub にも保存しない（探すときに、場所の名前と本人の話だけが並べ替えのために送られる）。
 
 import { useEffect, useState } from "react";
@@ -18,32 +18,49 @@ import {
   saveActivitiesText,
   saveHomeText,
 } from "@/lib/places";
+import { initialPlan } from "@/lib/plan";
+import { SAMPLE_ROUTINE_TEXT, loadRoutineText, parseRoutineText, saveRoutineText, withRoutinePlaces } from "@/lib/routine";
 
 const area = { width: "100%", fontSize: 20, padding: 12, borderRadius: 12, border: "2px solid var(--line)" } as const;
 
 export default function Settings() {
   const [text, setText] = useState("");
   const [acts, setActs] = useState("");
+  const [routineText, setRoutineText] = useState("");
   const [msg, setMsg] = useState("");
+  const [at, setAt] = useState("");
 
   useEffect(() => {
-    setText(loadHomeText() ?? placesToText(SAMPLE_HOME_PLACES));
+    const home = loadHomeText();
+    setText(home ?? placesToText(SAMPLE_HOME_PLACES));
     setActs(loadActivitiesText() ?? SAMPLE_ACTIVITIES_TEXT);
+    setRoutineText(loadRoutineText() ?? (home ? "" : SAMPLE_ROUTINE_TEXT));
+    const d = new Date();
+    setAt(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
   }, []);
 
-  const places = parsePlacesText(text);
+  const basePlaces = parsePlacesText(text);
+  const routine = parseRoutineText(routineText, basePlaces);
+  const places = withRoutinePlaces(basePlaces, routine);
+  const added = places.slice(basePlaces.length);
   const activities = parseActivitiesText(acts);
+  const [hh, mm] = (at || "0:0").split(":").map((x) => parseInt(x, 10) || 0);
+  const previewAt = new Date(2026, 0, 1, hh, mm);
+  const preview = initialPlan({ home: places, found: {}, now: previewAt, clue: null, routine });
 
   const save = () => {
     saveHomeText(text);
     saveActivitiesText(acts);
+    saveRoutineText(routineText);
     setMsg("この iPad に保存しました。");
   };
   const reset = () => {
     saveHomeText(null);
     saveActivitiesText(null);
+    saveRoutineText(null);
     setText(placesToText(SAMPLE_HOME_PLACES));
     setActs(SAMPLE_ACTIVITIES_TEXT);
+    setRoutineText(SAMPLE_ROUTINE_TEXT);
     setMsg("サンプルにもどしました。");
   };
 
@@ -66,6 +83,15 @@ export default function Settings() {
       </p>
       <textarea value={acts} onChange={(e) => setActs(e.target.value)} rows={6} style={area} />
 
+      <h2>3. 一日の流れ</h2>
+      <p className="muted">
+        1行に1つ、「時刻 &gt; 日課 &gt; 眼鏡の置き場所」。例「12:00 &gt; 昼ごはん &gt; 台所」。
+        探すときは、今日もう始まった日課のうち、いちばん最近のものの場所から確かめます（探す時刻と置いた時刻はちがうため）。
+        外に出るときなど場所が変わらない日課は、場所に「そのまま」と書くと飛ばして、その前の日課の場所を見ます。
+        1にない場所を書くと、自動で場所に加えます。ここに書くと、1の「怪しい時刻」は使いません。
+      </p>
+      <textarea value={routineText} onChange={(e) => setRoutineText(e.target.value)} rows={10} style={area} />
+
       <div style={{ display: "flex", gap: 16 }}>
         <button className="big-button" style={{ minHeight: 72, fontSize: 28 }} onClick={save}>保存する</button>
         <button className="big-button no" style={{ minHeight: 72, fontSize: 28 }} onClick={reset}>サンプルにもどす</button>
@@ -73,25 +99,49 @@ export default function Settings() {
       {msg && <p>{msg}</p>}
 
       <div className="card" style={{ fontSize: 20 }}>
-        <div className="muted">確かめる順番（手がかりがないとき）</div>
+        <div className="muted">
+          確かめる順番（手がかりがないとき）　
+          <label>
+            探す時刻 <input type="time" value={at} onChange={(e) => setAt(e.target.value)} style={{ fontSize: 20 }} />
+          </label>
+        </div>
         <ol style={{ margin: "8px 0 0" }}>
-          <li>{BODY_CHECK.name}（1回でまとめて聞く）</li>
-          {places.filter((p) => p.main).map((p) => (
-            <li key={p.id}>
-              {p.name}
-              {p.hours ? `（${p.hours.join("時・")}時ごろは理由をそえて聞く）` : ""}
-              {/と、|、と|および/.test(p.action) && (
+          {preview.first.map((st) => (
+            <li key={st.place.id}>
+              {st.place.id === BODY_CHECK.id ? `${BODY_CHECK.name}（1回でまとめて聞く）` : st.place.name}
+              {st.reason ? `　「${st.reason}」` : ""}
+              {/と、|、と|および/.test(st.place.action) && (
                 <span style={{ color: "#b5482f" }}>　※確かめ方は一か所にしぼると答えやすくなります</span>
               )}
             </li>
           ))}
         </ol>
-        {places.some((p) => !p.main) && (
+        {preview.rest.length > 0 && (
           <div className="muted" style={{ marginTop: 8 }}>
-            それでもなければ「ほかの場所も見ますか？」と聞いてから: {places.filter((p) => !p.main).map((p) => p.name).join("、")}
+            それでもなければ続けて: {preview.rest.map((s) => s.place.name).join("、")}
+          </div>
+        )}
+        {routine.length > 0 && basePlaces.some((p) => p.hours) && (
+          <div className="muted" style={{ marginTop: 8 }}>
+            ※一日の流れがあるので、1の「怪しい時刻」は使っていません（消してもかまいません）。
           </div>
         )}
       </div>
+      {routine.length > 0 && (
+        <div className="card" style={{ fontSize: 20 }}>
+          <div className="muted">一日の流れの読み取り</div>
+          <ul style={{ margin: "8px 0 0" }}>
+            {routine.map((r, i) => (
+              <li key={i} style={{ color: r.placeName ? undefined : "var(--muted)" }}>
+                {r.time} {r.activity} → {r.placeName ?? "場所は変わらない（飛ばす）"}
+              </li>
+            ))}
+          </ul>
+          {added.length > 0 && (
+            <div className="muted" style={{ marginTop: 8 }}>1にないので加えた場所: {added.map((p) => p.name).join("、")}</div>
+          )}
+        </div>
+      )}
       <div className="card" style={{ fontSize: 20 }}>
         <div className="muted">していたこと → 先に確かめる場所</div>
         <ul style={{ margin: "8px 0 0" }}>

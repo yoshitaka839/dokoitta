@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { parseActivitiesText, parsePlacesText } from "../lib/places";
 import { clueFromRerank, hasClue, initialPlan, matchActivity, matchSpokenPlace, moveToFront, question } from "../lib/plan";
+import { parseRoutineText, recentRoutine, routineReason, withRoutinePlaces, afterPhrase } from "../lib/routine";
 import { answerWhileWaiting, echoOf, foundAnswer, isQuickAnswer, startsWithAck } from "../lib/normalize";
 
 const home = parsePlacesText(`物置の棚 | 物置の棚の上を見てください | 16
@@ -122,5 +123,40 @@ assert.equal(echoOf(true), "はい。");
 assert.equal(echoOf("rest"), "");
 assert.equal(startsWithAck("体のまわりにはなかったですね。"), true);
 assert.equal(startsWithAck("まず、台所のテーブルを見てください"), false);
+
+// 一日の流れ: 探す時刻ではなく「今日もう始まった日課のうち、いちばん最近のもの」の場所から（サンプル）
+{
+  const routine = parseRoutineText(`7:00 > 朝ごはん > 台所
+8:00 > 新聞、ラジオ > 居間
+9:00 > 散歩 > そのまま（外に持って出ない）
+12:00 > 昼ごはん > 台所
+13:00 > 昼寝（ソファ） > ソファ
+14:30 > 外出（場所は変わらない）または片づけ > 物置の棚
+20:00 > 寝る > 寝室の枕元
+21:00 > 夜の散歩 > 外なら変わらない、家なら玄関`, home);
+  assert.equal(routine[1].placeName, "居間のテーブル"); // 「居間」でも登録の場所として読む
+  assert.equal(routine[2].placeName, null); // 場所が変わらない日課は飛ばす
+  assert.equal(routine[5].activity, "片づけ");
+  assert.equal(routine[7].placeName, "玄関");
+  const h = withRoutinePlaces(home, routine);
+  // 置いてから時間がたっていても、最後にした日課の場所が先（10時に探しても、散歩は飛ばして新聞の居間）
+  const at10 = new Date(2026, 10, 6, 10, 0);
+  assert.deepEqual(recentRoutine(routine, at10).map((r) => r.placeName).slice(0, 3), ["居間のテーブル", "台所", "玄関"]);
+  const p = initialPlan({ home: h, found: {}, now: at10, clue: null, routine });
+  assert.deepEqual(names(p.first).slice(0, 4), ["頭の上・首元・ポケット", "居間のテーブル", "台所", "玄関"]);
+  assert.equal(p.first[1].reason, "新聞のあとなので、居間のテーブルかもしれません");
+  // 日課があるときは、場所の一覧の「怪しい時刻」（物置の棚 16時）は使わない
+  const p16 = initialPlan({ home: h, found: {}, now: at16, clue: null, routine });
+  assert.equal(p16.first[1].place.name, "物置の棚");
+  assert.equal(p16.first[1].reason, "片づけのあとなので、物置の棚かもしれません");
+  // 朝早くは前の日の夜の日課へさかのぼる
+  const at5 = new Date(2026, 10, 6, 5, 0);
+  assert.equal(recentRoutine(routine, at5)[0].placeName, "玄関");
+  // 話の手がかりはこれまでどおり最優先
+  const clue = matchActivity("出かけようとしてた", acts, h)!;
+  assert.equal(names(initialPlan({ home: h, found: {}, now: at10, clue, routine }).first)[0], "玄関");
+  assert.equal(routineReason(routine[6]), "寝たあとなので、寝室かもしれません");
+  assert.equal(afterPhrase("顔を洗う"), "顔を洗ったあと");
+}
 
 console.log("ok: plan tests passed");

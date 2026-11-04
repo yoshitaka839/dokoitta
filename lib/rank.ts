@@ -43,7 +43,7 @@ export function foundAtSameTime(p: Place, hours: FoundHours, now: Date): boolean
   return (hours[p.name] ?? []).some((x) => Math.min(Math.abs(h - x), 24 - Math.abs(h - x)) <= 1.5);
 }
 
-export function scorePlaces(places: Place[], found: FoundCounts = {}, now = new Date(), hours: FoundHours = {}) {
+export function scorePlaces(places: Place[], found: FoundCounts = {}, now = new Date(), hours: FoundHours = {}, useHours = true) {
   const band = timeBand(now);
   return places
     .map((p) => ({
@@ -51,7 +51,7 @@ export function scorePlaces(places: Place[], found: FoundCounts = {}, now = new 
       score:
         p.base +
         (p.bands?.[band] ?? 0) +
-        hourBonus(p, now) +
+        (useHours ? hourBonus(p, now) : 0) +
         Math.min(found[p.name] ?? 0, 5) * 12 +
         (foundAtSameTime(p, hours, now) ? 25 : 0),
     }))

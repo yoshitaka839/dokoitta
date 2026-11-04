@@ -16,6 +16,14 @@ export type Place = {
   main?: boolean; // よく置く場所（最初はここだけ確かめる）
 };
 
+// 場所の呼び方のゆれ（「居間のテーブル」→「居間」「テーブル」も同じ場所として聞き取る）
+const GENERIC = new Set(["前", "中", "上", "下", "横", "そば", "まわり", "周り"]);
+export function aliases(p: Place): string[] {
+  if (p.body) return ["頭", "首", "ポケット"];
+  const parts = p.name.split("の").filter((x) => x.length >= 2 && !GENERIC.has(x));
+  return [...new Set([p.name, ...parts])];
+}
+
 // 最初に確かめる「よく置く場所」の数（設定の上から）
 export const MAIN_COUNT = 4;
 
@@ -92,6 +100,11 @@ export function saveHomeText(text: string | null) {
   } catch {
     /* 保存できない端末ではサンプルのまま */
   }
+}
+
+export function usingSamplePlaces(): boolean {
+  const t = typeof window !== "undefined" ? loadHomeText() : null;
+  return !(t && parsePlacesText(t).length);
 }
 
 export function getHomePlaces(): Place[] {
