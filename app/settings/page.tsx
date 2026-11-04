@@ -19,6 +19,7 @@ import {
   saveHomeText,
 } from "@/lib/places";
 import { initialPlan } from "@/lib/plan";
+import { loadTryTime, saveTryTime } from "@/lib/trytime";
 import { SAMPLE_ROUTINE_TEXT, loadRoutineText, parseRoutineText, saveRoutineText, withRoutinePlaces } from "@/lib/routine";
 
 const area = { width: "100%", fontSize: 20, padding: 12, borderRadius: 12, border: "2px solid var(--line)" } as const;
@@ -29,6 +30,8 @@ export default function Settings() {
   const [routineText, setRoutineText] = useState("");
   const [msg, setMsg] = useState("");
   const [at, setAt] = useState("");
+  const [tryTime, setTryTime] = useState<string | null>(null);
+  const [tryInput, setTryInput] = useState("15:50");
 
   useEffect(() => {
     const home = loadHomeText();
@@ -36,7 +39,10 @@ export default function Settings() {
     setActs(loadActivitiesText() ?? SAMPLE_ACTIVITIES_TEXT);
     setRoutineText(loadRoutineText() ?? (home ? "" : SAMPLE_ROUTINE_TEXT));
     const d = new Date();
-    setAt(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
+    const t = loadTryTime()?.time ?? null;
+    setTryTime(t);
+    if (t) setTryInput(t);
+    setAt(t ?? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
   }, []);
 
   const basePlaces = parsePlacesText(text);
@@ -91,6 +97,41 @@ export default function Settings() {
         1にない場所を書くと、自動で場所に加えます。ここに書くと、1の「怪しい時刻」は使いません。
       </p>
       <textarea value={routineText} onChange={(e) => setRoutineText(e.target.value)} rows={10} style={area} />
+
+      <h2>4. 試すときの時刻（練習・撮影用）</h2>
+      <p className="muted">
+        指定すると、探す画面はこの時刻として順番を決めます（ふだんは今の時刻）。指定している間は練習あつかいで、記録は回数に数えません。
+        解除し忘れても、次の日には自動で今の時刻にもどります。探す画面の上に「練習（15:50として）」と小さく出ます。
+      </p>
+      <div className="card" style={{ fontSize: 22, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", borderColor: tryTime ? "#b5482f" : undefined }}>
+        <strong style={{ color: tryTime ? "#b5482f" : undefined }}>
+          {tryTime ? `いまは ${tryTime} として動きます（今日だけ）` : "いまは今の時刻で動きます"}
+        </strong>
+        <input type="time" value={tryInput} onChange={(e) => setTryInput(e.target.value)} style={{ fontSize: 22 }} />
+        <button
+          className="big-button"
+          style={{ minHeight: 56, fontSize: 22, width: "auto", padding: "0 20px", margin: 0 }}
+          onClick={() => {
+            saveTryTime(tryInput);
+            setTryTime(loadTryTime()?.time ?? null);
+            setAt(tryInput);
+          }}
+        >
+          この時刻で試す
+        </button>
+        {tryTime && (
+          <button
+            className="big-button no"
+            style={{ minHeight: 56, fontSize: 22, width: "auto", padding: "0 20px", margin: 0 }}
+            onClick={() => {
+              saveTryTime(null);
+              setTryTime(null);
+            }}
+          >
+            解除して今の時刻にもどす
+          </button>
+        )}
+      </div>
 
       <div style={{ display: "flex", gap: 16 }}>
         <button className="big-button" style={{ minHeight: 72, fontSize: 28 }} onClick={save}>保存する</button>

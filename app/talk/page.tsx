@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import { beep, canListen, listen, prepareBeep, speak, stopListening } from "@/lib/voice";
 import { answerWhileWaiting, echoOf, foundAnswer, isQuickAnswer, startsWithAck, understand, yesNo, type FoundKind } from "@/lib/normalize";
 import { BODY_CHECK, getActivities, getHomePlaces, usingSamplePlaces, type Place } from "@/lib/places";
+import { effectiveTime, loadTryTime } from "@/lib/trytime";
 import { getRoutineText, parseRoutineText, withRoutinePlaces } from "@/lib/routine";
 import { clueFromRerank, hasClue, initialPlan, matchActivity, matchSpokenPlace, moveToFront, question, type Clue, type Step } from "@/lib/plan";
 import { foundCounts, foundHours, saveRecord, updateLatestFound, type SearchRecord } from "@/lib/history";
@@ -24,27 +25,23 @@ const WAIT_MS = 3 * 60 * 1000; // 探しに行っている間に待つ時間（�
 const NOD_MS = 20 * 1000; // 「確かめてきて」のすぐ後の「はい」は、うなずきとして聞き流す
 
 
-// 練習モード: /talk?practice=1 か ?at=… のとき。記録は「練習」として分け、よく見つかる場所の回数に数えない
-function isPractice(): boolean {
+// 練習モード: /talk?practice=1 か ?at=… のとき、または /settings で「試すときの時刻」を指定しているとき。
+// 記録は「練習」として分け、よく見つかる場所の回数に数えない
+function urlParams(): URLSearchParams | null {
   try {
-    const q = new URLSearchParams(window.location.search);
-    return q.has("practice") || q.has("at");
+    return new URLSearchParams(window.location.search);
   } catch {
-    return false;
+    return null;
   }
 }
+function isPractice(): boolean {
+  const q = urlParams();
+  return !!q && (q.has("practice") || q.has("at")) || loadTryTime() !== null;
+}
 
-// 練習用: /talk?at=16:00 のように時刻を指定すると、その時刻として順番を決める
+// 順番を決める時刻: ?at=15:50 → 設定の「試すときの時刻」 → 今の時刻
 function currentTime(): Date {
-  const now = new Date();
-  try {
-    const at = new URLSearchParams(window.location.search).get("at");
-    const m = at?.match(/^(\d{1,2}):?(\d{2})?$/);
-    if (m) now.setHours(Number(m[1]) % 24, Number(m[2] ?? 0), 0, 0);
-  } catch {
-    /* 指定なし */
-  }
-  return now;
+  return effectiveTime(urlParams()?.get("at") ?? null, loadTryTime()).date;
 } // この数を確かめるごとに、続けるか休むか聞く
 
 async function rerank(utterance: string, candidates: Place[], hour = new Date().getHours()) {
@@ -429,11 +426,19 @@ export default function Talk() {
 
   const currentPlace = current ? placeById(current) : null;
   const [practice, setPractice] = useState(false);
-  useEffect(() => setPractice(isPractice()), []);
+  const [tryAt, setTryAt] = useState<string | null>(null);
+  useEffect(() => {
+    setPractice(isPractice());
+    setTryAt(urlParams()?.get("at") ?? loadTryTime()?.time ?? null);
+  }, []);
 
   return (
     <main className="talk-page">
-      {practice && <div className="muted" style={{ textAlign: "center" }}>練習モード（記録は練習として分けて残します）</div>}
+      {practice && (
+        <div className="muted" style={{ textAlign: "center", fontSize: 16 }}>
+          練習{tryAt ? `（${tryAt}として）` : ""}・記録は分けて残します
+        </div>
+      )}
       {stage === "idle" && !running ? (
         <button className="touch-area" onClick={begin}>
           さわってください

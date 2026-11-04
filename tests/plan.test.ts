@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { parseActivitiesText, parsePlacesText } from "../lib/places";
 import { clueFromRerank, hasClue, initialPlan, matchActivity, matchSpokenPlace, moveToFront, question } from "../lib/plan";
 import { parseRoutineText, recentRoutine, routineReason, withRoutinePlaces, afterPhrase } from "../lib/routine";
+import { effectiveTime } from "../lib/trytime";
 import { answerWhileWaiting, echoOf, foundAnswer, isQuickAnswer, startsWithAck } from "../lib/normalize";
 
 const home = parsePlacesText(`物置の棚 | 物置の棚の上を見てください | 16
@@ -160,6 +161,15 @@ assert.equal(startsWithAck("まず、台所のテーブルを見てください"
   // 「時刻 日課 > 場所」の書き方も読める
   const r2 = parseRoutineText("７：３０ 朝ごはん > 台所\n9:00 散歩 > そのまま", home);
   assert.deepEqual(r2.map((r) => [r.time, r.activity, r.placeName]), [["7:30", "朝ごはん", "台所"], ["9:00", "散歩", null]]);
+}
+
+// 試すときの時刻: ?at= → 設定 → 今の時刻 の順
+{
+  const now = new Date(2026, 10, 6, 16, 40);
+  const hm = (d: Date) => `${d.getHours()}:${d.getMinutes()}`;
+  assert.equal(hm(effectiveTime(null, null, now).date), "16:40");
+  assert.equal(hm(effectiveTime(null, { time: "15:50", day: "2026-11-06" }, now).date), "15:50");
+  assert.equal(effectiveTime("10:00", { time: "15:50", day: "2026-11-06" }, now).source, "url");
 }
 
 console.log("ok: plan tests passed");
