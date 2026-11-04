@@ -32,29 +32,43 @@ h1 { font-size: 40px; margin: 0 0 16px; }
 a { color: var(--accent); }
 
 /* 話しかけるページ */
+/* タブバーやツールバーがあっても切れないよう、実際に見えている高さ（dvh）に合わせて収める */
+main.talk-page {
+  height: 100vh; height: 100dvh;
+  display: flex; flex-direction: column;
+  padding: 12px 20px calc(8px + env(safe-area-inset-bottom));
+  overflow: hidden;
+}
 .touch-area {
-  flex: 1; width: 100%; min-height: 70vh;
+  flex: 1; width: 100%; min-height: 0;
   font-size: 56px; font-weight: bold;
   border: none; border-radius: 32px;
   background: var(--accent); color: var(--accent-fg);
   cursor: pointer;
 }
-.talk { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 24px; padding-top: 40px; text-align: center; }
-.said { font-size: 48px; font-weight: bold; line-height: 1.4; min-height: 140px; }
-.mic { font-size: 72px; width: 140px; height: 140px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--line); opacity: 0.35; }
+.talk { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: clamp(8px, 1.5dvh, 16px); text-align: center; }
+/* 上: 話している言葉など（狭いときはこの中だけ縮む・スクロール）。下: 答えのボタンはいつも画面内に */
+.talk-top { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center; justify-content: safe center; gap: clamp(6px, 1.5dvh, 20px); }
+.talk-top > * { flex-shrink: 0; }
+.talk-bottom { flex-shrink: 0; display: flex; flex-direction: column; gap: clamp(8px, 1.5dvh, 16px); }
+.talk-bottom:empty { display: none; }
+.said { font-size: clamp(24px, 5dvh, 48px); font-weight: bold; line-height: 1.4; }
+.mic { font-size: clamp(28px, 6dvh, 72px); width: clamp(52px, 11dvh, 140px); height: clamp(52px, 11dvh, 140px); border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--line); opacity: 0.35; }
 .mic.on { opacity: 1; background: #f3c9bd; animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
 .heard { font-size: 32px; color: var(--muted); min-height: 52px; }
 .answer-buttons { display: flex; gap: 24px; width: 100%; }
-.answer-buttons .big-button { flex: 1; font-size: 48px; }
+.answer-buttons .big-button { flex: 1; font-size: clamp(32px, 5.5dvh, 48px); min-height: clamp(72px, 12dvh, 120px); margin: 0; }
 .big-button.no { background: #8a8a8a; }
-.place { font-size: 28px; color: var(--accent); font-weight: bold; border: 3px solid var(--accent); border-radius: 999px; padding: 4px 24px; }
+.place { font-size: clamp(22px, 3.5dvh, 28px); color: var(--accent); font-weight: bold; border: 3px solid var(--accent); border-radius: 999px; padding: 4px 24px; }
 .checked { font-size: 20px; }
-.wait-note { font-size: 28px; color: var(--accent); font-weight: bold; }
-.big-button.undo { background: transparent; color: var(--muted); border: 2px solid var(--line); min-height: 64px; font-size: 24px; margin: 0; }
+.wait-note { font-size: clamp(20px, 3.5dvh, 28px); color: var(--accent); font-weight: bold; }
+.big-button.undo { background: transparent; color: var(--muted); border: 2px solid var(--line); min-height: clamp(44px, 6dvh, 64px); font-size: 24px; margin: 0; }
 /* 聞き取った言葉（誰の言葉かが分かるように大きく） */
-.heard-box { width: 100%; border: 3px solid var(--line); border-radius: 20px; padding: 12px 20px; background: var(--card); }
+.heard-box { width: 100%; border: 3px solid var(--line); border-radius: 20px; padding: clamp(4px, 1dvh, 12px) 20px; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; column-gap: 12px; background: var(--card); }
 .heard-box .who { font-size: 22px; color: var(--muted); }
-.heard-box .heard { font-size: 44px; color: var(--fg); min-height: 0; }
+.heard-box .heard { font-size: clamp(28px, 5dvh, 44px); color: var(--fg); min-height: 0; }
 .heard-box.ok { border-color: var(--accent); background: #e6f3ee; }
 .heard-box.ok .who { color: var(--accent); font-weight: bold; }
+.talk-page .family-log { margin-top: 8px; flex-shrink: 0; }
+.talk-page .family-log .log { max-height: 30dvh; }

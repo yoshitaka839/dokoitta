@@ -428,7 +428,7 @@ export default function Talk() {
   useEffect(() => setPractice(isPractice()), []);
 
   return (
-    <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+    <main className="talk-page">
       {practice && <div className="muted" style={{ textAlign: "center" }}>練習モード（記録は練習として分けて残します）</div>}
       {stage === "idle" && !running ? (
         <button className="touch-area" onClick={begin}>
@@ -436,6 +436,7 @@ export default function Talk() {
         </button>
       ) : (
         <div className="talk">
+          <div className="talk-top">
           {currentPlace && <div className="place">{currentPlace.name}</div>}
           <div className="said">{said}</div>
           <div className={`mic ${stage === "listening" ? "on" : ""}`}>🎤</div>
@@ -446,6 +447,8 @@ export default function Talk() {
               <div className="heard">「{heard}」</div>
             </div>
           )}
+          </div>
+          <div className="talk-bottom">
           {showButtons && buttonKind === "yesno" && (
             <div className="answer-buttons">
               <button className="big-button yes" onClick={() => answer(true)}>はい</button>
@@ -480,13 +483,14 @@ export default function Talk() {
             </button>
           )}
           {stage === "done" && !running && (
-            <button className="big-button" style={{ minHeight: 80, fontSize: 28 }} onClick={reset}>
+            <button className="big-button" style={{ minHeight: 72, fontSize: 28, margin: 0 }} onClick={reset}>
               はじめにもどる
             </button>
           )}
+          </div>
         </div>
       )}
-      <details className="muted" style={{ marginTop: "auto" }}>
+      <details className="muted family-log">
         <summary>記録（家族向け）</summary>
         <div className="log">{log.join("\n")}</div>
       </details>
