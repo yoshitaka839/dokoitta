@@ -157,6 +157,9 @@ assert.equal(startsWithAck("まず、台所のテーブルを見てください"
   assert.equal(names(initialPlan({ home: h, found: {}, now: at10, clue, routine }).first)[0], "玄関");
   assert.equal(routineReason(routine[6]), "寝たあとなので、寝室かもしれません");
   assert.equal(afterPhrase("顔を洗う"), "顔を洗ったあと");
+  // 「時刻 日課 > 場所」の書き方も読める
+  const r2 = parseRoutineText("７：３０ 朝ごはん > 台所\n9:00 散歩 > そのまま", home);
+  assert.deepEqual(r2.map((r) => [r.time, r.activity, r.placeName]), [["7:30", "朝ごはん", "台所"], ["9:00", "散歩", null]]);
 }
 
 console.log("ok: plan tests passed");

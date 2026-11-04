@@ -62,7 +62,10 @@ export function parseRoutineText(text: string, home: Place[]): RoutineEntry[] {
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line || line.startsWith("#")) continue;
-    const [t, act, where] = line.split(/>|＞|→/).map((x) => (x ?? "").trim());
+    let [t, act, where] = line.split(/>|＞|→/).map((x) => (x ?? "").trim());
+    // 「4:30 顔洗い > 洗面所」のように、時刻と日課を空白で区切った書き方も受け付ける
+    const lead = toHalf(t ?? "").match(/^(\d{1,2}(?::\d{1,2}|時(?:\d{1,2}分?)?)?)[\s　]+(.+)$/);
+    if (lead && where === undefined) [t, act, where] = [lead[1], lead[2], act];
     const minutes = parseTime(t ?? "");
     if (minutes === null || !act) continue;
     // 「外出（場所は変わらない）または読書」のような書き方では、場所が変わる方の日課の名前を使う
