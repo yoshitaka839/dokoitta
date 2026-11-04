@@ -49,7 +49,15 @@ const UNFINISHED = /(けど|けれど|が|て|で|から|ので|し|と|は|を|
 // 話し終わって silenceMs 黙ったら区切る（途中っぽければ unfinishedMs まで待つ）。
 // 何も話さなければ maxMs で終わる。父はゆっくり間をあけて話すので、既定値は長め。
 export function listen(
-  opts: { silenceMs?: number; unfinishedMs?: number; maxMs?: number; onPartial?: (t: string) => void } = {},
+  opts: {
+    silenceMs?: number;
+    unfinishedMs?: number;
+    maxMs?: number;
+    onPartial?: (t: string) => void;
+    // 「はい」「あった」のような短い答えだと分かったら、長く待たずにすぐ区切る（何度も言わせないため）
+    quick?: (t: string) => boolean;
+    quickMs?: number;
+  } = {},
 ): Promise<ListenResult> {
   const silenceMs = opts.silenceMs ?? 3000;
   const unfinishedMs = opts.unfinishedMs ?? 5000;
@@ -73,7 +81,11 @@ export function listen(
       text = all;
       opts.onPartial?.(all);
       if (silence) clearTimeout(silence);
-      const wait = UNFINISHED.test(all.trim()) ? unfinishedMs : silenceMs;
+      const wait = opts.quick?.(all.trim())
+        ? opts.quickMs ?? 700
+        : UNFINISHED.test(all.trim())
+          ? unfinishedMs
+          : silenceMs;
       silence = setTimeout(() => rec.stop(), wait);
     };
     rec.onerror = (e: any) => {
@@ -92,4 +104,36 @@ export function listen(
       resolve({ text: "", error: String(err) });
     }
   });
+}
+
+// 聞き取れた合図の短い音。iPad は画面をさわったあとでないと音が出せないので、最初のタップで unlockChime() を呼ぶ
+let audioCtx: AudioContext | null = null;
+export function unlockChime() {
+  try {
+    const w = window as any;
+    audioCtx = audioCtx ?? new (w.AudioContext || w.webkitAudioContext)();
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+  } catch {
+    audioCtx = null;
+  }
+}
+export function chime() {
+  const ctx = audioCtx;
+  if (!ctx) return;
+  try {
+    const t = ctx.currentTime;
+    for (const [f, d] of [[880, 0], [1320, 0.12]] as const) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t + d);
+      g.gain.exponentialRampToValueAtTime(0.25, t + d + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.25);
+      o.connect(g).connect(ctx.destination);
+      o.start(t + d);
+      o.stop(t + d + 0.3);
+    }
+  } catch {
+    /* 音が出なくても流れは止めない */
+  }
 }

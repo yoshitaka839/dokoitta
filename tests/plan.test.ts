@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { parseActivitiesText, parsePlacesText } from "../lib/places";
 import { clueFromRerank, hasClue, initialPlan, matchActivity, matchSpokenPlace, moveToFront, question } from "../lib/plan";
-import { foundAnswer } from "../lib/normalize";
+import { foundAnswer, isShortAnswer, waitingAnswer } from "../lib/normalize";
 
 const home = parsePlacesText(`物置の棚 | 物置の棚の上を見てください | 16
 居間のテーブル | 居間のテーブルの上を見てください
@@ -84,5 +84,21 @@ assert.equal(foundAnswer("あった"), "found");
 assert.equal(foundAnswer("なかった"), "not");
 // 取り消し・言い直し
 for (const t of ["さっきの取り消し", "違う", "間違えた", "今のなし"]) assert.equal(foundAnswer(t), "undo", t);
+
+// 休みたいという合図
+for (const t of ["休む", "もういい", "疲れた"]) assert.equal(foundAnswer(t), "rest", t);
+
+// 探しに行っている間: 短い言い切りだけを答えにし、歩きながらのつぶやきは聞き流す
+assert.equal(waitingAnswer("あった"), "found");
+assert.equal(waitingAnswer("ありました"), "found");
+assert.equal(waitingAnswer("えーと、なかったね"), "not");
+assert.equal(waitingAnswer("ここにあったよ"), "found");
+for (const t of ["えーとどこだったかな", "どっちだったかなあ", "", "テレビでは今日は雨が降らないと言っていました"]) {
+  assert.equal(waitingAnswer(t), null, t);
+}
+
+// 「はい」「あった」だけなら、長く待たずにすぐ区切る
+for (const t of ["はい", "はい。", "うん", "いいえ", "あった", "なかった"]) assert.ok(isShortAnswer(t), t);
+for (const t of ["はいそうなんですけど", "眼鏡がないんです", "えーと"]) assert.ok(!isShortAnswer(t), t);
 
 console.log("ok: plan tests passed");
