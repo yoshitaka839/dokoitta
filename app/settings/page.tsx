@@ -22,7 +22,7 @@ import { initialPlan } from "@/lib/plan";
 import { loadTryTime, saveTryTime } from "@/lib/trytime";
 import { DEFAULT_PROFILE, SAMPLE_DESK_TEXT, loadDeskText, loadProfile, lookQuestion, parseDeskText, saveDeskText, saveProfile, type Profile } from "@/lib/profile";
 import { canKeepAwake } from "@/lib/voice";
-import { SAMPLE_ROUTINE_TEXT, loadRoutineText, parseRoutineText, saveRoutineText, withRoutinePlaces } from "@/lib/routine";
+import { SAMPLE_ROUTINE_TEXT, allSettingPlaces, loadRoutineText, parseRoutineText, saveRoutineText, unreadRoutineLines } from "@/lib/routine";
 
 const area = { width: "100%", fontSize: 20, padding: 12, borderRadius: 12, border: "2px solid var(--line)" } as const;
 
@@ -57,9 +57,10 @@ export default function Settings() {
 
   const basePlaces = parsePlacesText(text);
   const routine = parseRoutineText(routineText, basePlaces);
-  const places = withRoutinePlaces(basePlaces, routine);
-  const added = places.slice(basePlaces.length);
   const activities = parseActivitiesText(acts);
+  const places = allSettingPlaces(basePlaces, routine, activities);
+  const added = places.slice(basePlaces.length);
+  const unread = unreadRoutineLines(routineText, basePlaces);
   const [hh, mm] = (at || "0:0").split(":").map((x) => parseInt(x, 10) || 0);
   const previewAt = new Date(2026, 0, 1, hh, mm);
   const desk = parseDeskText(deskText);
@@ -198,6 +199,11 @@ export default function Settings() {
         1にない場所を書くと、自動で場所に加えます。ここに書くと、1の「怪しい時刻」は使いません。
       </p>
       <textarea value={routineText} onChange={(e) => setRoutineText(e.target.value)} rows={10} style={area} />
+      {unread.length > 0 && (
+        <p style={{ color: "#b5482f", fontSize: 20 }}>
+          読めなかった行があります（時刻を「15:30」の形にしてください）: {unread.join("／")}
+        </p>
+      )}
 
       <h2>4. 試すときの時刻（練習・撮影用）</h2>
       <p className="muted">
@@ -279,9 +285,11 @@ export default function Settings() {
               </li>
             ))}
           </ul>
-          {added.length > 0 && (
-            <div className="muted" style={{ marginTop: 8 }}>1にないので加えた場所: {added.map((p) => p.name).join("、")}</div>
-          )}
+        </div>
+      )}
+      {added.length > 0 && (
+        <div className="card muted" style={{ fontSize: 20 }}>
+          1にないので加えた場所（一日の流れ・していたことから）: {added.map((p) => p.name).join("、")}
         </div>
       )}
       <div className="card" style={{ fontSize: 20 }}>

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { parseActivitiesText, parsePlacesText } from "../lib/places";
 import { clueFromRerank, hasClue, initialPlan, matchActivity, matchSpokenPlace, moveToFront, question } from "../lib/plan";
-import { parseRoutineText, recentRoutine, routineReason, withRoutinePlaces, timePhrase } from "../lib/routine";
+import { allSettingPlaces, parseRoutineText, recentRoutine, routineReason, unreadRoutineLines, withRoutinePlaces, timePhrase } from "../lib/routine";
 import { effectiveTime } from "../lib/trytime";
 import { answerWhileWaiting, echoOf, foundAnswer, isQuickAnswer, looksLikeReadAloud, quickWaitMs } from "../lib/normalize";
 import { DEFAULT_PROFILE, lookQuestion, parseDeskText, SAMPLE_DESK_TEXT } from "../lib/profile";
@@ -201,5 +201,43 @@ assert.equal(lookQuestion(DEFAULT_PROFILE), "いつものメガネですか？")
 assert.equal(lookQuestion({ ...DEFAULT_PROFILE, looks: "細いふちの" }), "いつもの細いふちのメガネですか？");
 assert.equal(P.giveUp("台所"), "わかりました。次に見るなら、台所です。");
 assert.ok(!/あった|なかった/.test(P.explain + P.reprompt));
+
+// 前の日に置いたまま、次の日に探すことがある（サンプル）。
+// 「〜に置きっぱなし」「15時半」「15:30〜16:00」のような書き方でも場所が抜けない
+{
+  const parsed = parseRoutineText(`7:00 > 朝ごはん > 台所
+15時半 > 片づけ > 物置の棚に置きっぱなし
+16:00〜17:00 > 畑 > 外に持って出る
+18:00 > 夕ごはん > 台所
+21:00 > 寝る > 寝室の枕元に置いていく`, home);
+  assert.deepEqual(parsed.map((r) => [r.time, r.placeName]), [["7:00", "台所"], ["15:30", "物置の棚"], ["16:00", null], ["18:00", "台所"], ["21:00", "寝室"]]);
+  assert.deepEqual(unreadRoutineLines("15:30 > 片づけ > 物置の棚\nあさ > 体操 > 庭", home), ["あさ > 体操 > 庭"]);
+
+  // 設定に書いた場所（家の場所・一日の流れ・していたこと → 場所）は、どの時刻に探しても全部案内する
+  const acts2 = parseActivitiesText("手紙 > 文机の引き出し\n新聞 > 居間");
+  const all = allSettingPlaces(home, parsed, acts2);
+  assert.ok(all.some((p) => p.name === "文机の引き出し"));
+  assert.ok(!all.some((p) => p.name === "居間")); // 「居間」は「居間のテーブル」と同じ場所
+  assert.equal(matchActivity("新聞読んでた", acts2, all)?.placeId, all.find((p) => p.name === "居間のテーブル")!.id);
+  for (let h = 0; h < 24; h++) {
+    const pl = initialPlan({ home: all, found: {}, now: new Date(2026, 10, 6, h, 15), clue: null, routine: parsed });
+    const asked = new Set([...pl.first, ...pl.rest].map((s) => s.place.name));
+    for (const p of all) assert.ok(asked.has(p.name), `${h}時に${p.name}が抜けた`);
+  }
+
+  // 午前中は、前の日の夕方から夜の日課の場所も早めに見る
+  const at8 = initialPlan({ home: all, found: {}, now: new Date(2026, 10, 6, 8, 0), clue: null, routine: parsed });
+  const n8 = at8.first.map((s) => s.place.name);
+  assert.deepEqual(n8.slice(0, 4), ["頭の上・首元・ポケット", "台所", "寝室", "物置の棚"]);
+  // 朝の日課がいくつも済んでいても、前の日の夕方の場所が、よく置く場所より前に来る
+  const r3 = parseRoutineText("6:00 > 顔を洗う > 洗面所\n7:00 > 朝ごはん > 台所\n8:00 > 新聞 > 居間\n15:30 > 片づけ > 物置の棚\n21:00 > 寝る > 寝室", home);
+  const h3 = allSettingPlaces(home, r3, []);
+  const at10b = initialPlan({ home: h3, found: {}, now: new Date(2026, 10, 6, 10, 0), clue: null, routine: r3 });
+  assert.deepEqual(at10b.first.map((s) => s.place.name).slice(1, 6), ["居間のテーブル", "台所", "洗面所", "寝室", "物置の棚"]);
+  // 午後は今日の日課から（前の日の夕方は早めにしない）
+  const at14 = initialPlan({ home: all, found: {}, now: new Date(2026, 10, 6, 14, 0), clue: null, routine: parsed });
+  assert.equal(at14.first[1].place.name, "台所");
+  assert.notEqual(at14.first[2].place.name, "物置の棚");
+}
 
 console.log("ok: plan tests passed");

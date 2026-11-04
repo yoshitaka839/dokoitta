@@ -3,11 +3,15 @@
 // 2. 体のまわり（頭の上・首元・ポケット）を1回の問いかけで
 // 3. 置いた場所: 手がかり（話に出たら先頭へ）→ 一日の流れ（今日もう始まった日課のうち新しいものから最大3か所。
 //    探す時刻と置いた時刻はちがうため。最初の場所だけ理由を言う）→ よく置く場所（4か所、記録で並べ替え）→ 残り
-import { BODY_CHECK, aliases, type Activity, type Place } from "./places";
+import { BODY_CHECK, aliases, findPlaceByName, type Activity, type Place } from "./places";
 import { recentRoutine, routineReason, type RoutineEntry } from "./routine";
 
 export { aliases };
 import { foundAtSameTime, hourHit, mergeOrder, scorePlaces, type FoundCounts, type FoundHours } from "./rank";
+
+// 「午前中」と「前の日の夕方から」の境目（0:00 からの分）
+const MORNING_END = 12 * 60;
+const EVENING_FROM = 15 * 60;
 
 export type Step = { place: Place; reason: string };
 export type RerankResult = { order: string[]; reason: string; source: "claude" | "program" };
@@ -38,7 +42,7 @@ export function matchActivity(text: string, acts: Activity[], home: Place[]): Cl
   const t = text.replace(/\s+/g, "");
   let best: { kw: string; place: Place } | null = null;
   for (const a of acts) {
-    const place = home.find((p) => p.name === a.placeName);
+    const place = findPlaceByName(home, a.placeName);
     if (!place) continue;
     for (const kw of a.keywords) {
       if (t.includes(kw) && (!best || kw.length > best.kw.length)) best = { kw, place };
@@ -94,6 +98,17 @@ export function initialPlan(opts: {
       used.add(x.place);
       first.push({ place: x.place, reason: i === 0 ? routineReason(x.r) : "" });
     });
+    // 午前中は、前の日の夕方から夜の日課の場所も早めに見る（前の日に置いたまま、次の日に探すことがあるため）。新しい日課から
+    const m = opts.now.getHours() * 60 + opts.now.getMinutes();
+    if (m < MORNING_END) {
+      for (const r of [...opts.routine!].reverse()) {
+        if (r.minutes < EVENING_FROM || r.minutes <= m || !r.placeName) continue;
+        const place = scored.find((p) => p.name === r.placeName);
+        if (!place || used.has(place)) continue;
+        used.add(place);
+        first.push({ place, reason: "" });
+      }
+    }
   }
   const others = scored.filter((p) => !used.has(p));
   first.push(...others.filter((p) => p.main).map(step));

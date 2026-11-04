@@ -26,6 +26,11 @@ export function aliases(p: Place): string[] {
   return [...new Set([p.name, ...parts])];
 }
 
+// 設定に書かれた場所の名前を、場所の一覧から探す（「居間」のような短い呼び方でも同じ場所とみなす）
+export function findPlaceByName(home: Place[], name: string): Place | undefined {
+  return home.find((p) => p.name === name) ?? home.find((p) => !p.body && aliases(p).includes(name));
+}
+
 // 最初に確かめる「よく置く場所」の数（設定の上から）
 export const MAIN_COUNT = 4;
 

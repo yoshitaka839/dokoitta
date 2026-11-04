@@ -4,7 +4,7 @@
 // 場所が変わらない日課（外に出るときなど）は飛ばし、その前の日課の場所を見る。
 // 一日の流れは暮らしがよく分かる情報なので、/settings で iPad の中にだけ保存する（公開リポジトリにはサンプルだけ）。
 
-import { aliases, type Place } from "./places";
+import { aliases, findPlaceByName, type Activity, type Place } from "./places";
 
 export type RoutineEntry = {
   minutes: number; // 0:00 からの分
@@ -24,14 +24,18 @@ export const SAMPLE_ROUTINE_TEXT = `6:00 > 顔を洗う > 洗面所
 18:00 > 夕ごはん > 台所
 21:00 > 寝る > 寝室の枕元`;
 
-const KEEP = /そのまま|変わらない|かわらない|置いていく|置いて行く|持って出|外出|なし|^[-ー－]$/;
+// 「置きっぱなし」の「なし」で場所の欄を捨ててしまわないよう、「なし」は欄全体のときだけ
+const KEEP = /そのまま|変わらない|かわらない|置いていく|置いて行く|持って出|外出|^なし$|^[-ー－]$/;
+// 「物置の棚に置きっぱなし」「物置の棚の上に置いたまま」のように動きの言葉が続くときは、その前を場所の名前とする
+const PLACE_THEN_VERB = /^(.+?)(?:に|で|へ)(?:置|おい|おく|おき|ある|あり|しま|入れ|いれ)/;
 
 const toHalf = (s: string) =>
   s.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0)).replace(/：/g, ":");
 const stripParens = (s: string) => s.replace(/[（(][^）)]*[）)]/g, "").trim();
 
 function parseTime(s: string): number | null {
-  const t = toHalf(s).replace(/\s/g, "");
+  // 「15:30〜16:00」のような幅は始まりの時刻だけ、「15時半」は30分として読む
+  const t = toHalf(s).replace(/\s/g, "").replace(/[〜~～\-－].*$/, "").replace(/時半$/, "時30分");
   const m = t.match(/^(\d{1,2})(?::|時)(\d{1,2})?分?$/) ?? t.match(/^(\d{1,2})$/);
   if (!m) return null;
   const h = parseInt(m[1], 10);
@@ -51,10 +55,20 @@ function placeFromField(field: string, home: Place[]): string | null {
       for (const a of aliases(p)) if (seg.includes(a) && (!best || a.length > best.alias.length)) best = { alias: a, place: p };
     }
     if (best) return best.place.name;
-    if (KEEP.test(seg)) continue;
-    if (!/なら/.test(seg) && seg.length <= 15) return seg; // 新しい場所の名前として使う
+    const cut = seg.match(PLACE_THEN_VERB)?.[1]?.trim();
+    const name = cut && !/なら/.test(cut) ? cut : seg;
+    if (KEEP.test(name)) continue;
+    if (!/なら/.test(name) && name.length <= 20) return name; // 新しい場所の名前として使う
   }
   return null;
+}
+
+// 読めなかった行（時刻が分からない、日課がない）。設定画面で知らせて、場所が黙って抜けないようにする
+export function unreadRoutineLines(text: string, home: Place[]): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#") && parseRoutineText(l, home).length === 0);
 }
 
 export function parseRoutineText(text: string, home: Place[]): RoutineEntry[] {
@@ -82,14 +96,24 @@ export function parseRoutineText(text: string, home: Place[]): RoutineEntry[] {
   return out.sort((a, b) => a.minutes - b.minutes).slice(0, 40);
 }
 
-// 日課に出てくるのに場所の一覧にない場所は、一覧の後ろに足す（確かめ方は「〜を見てください」）
-export function withRoutinePlaces(home: Place[], routine: RoutineEntry[]): Place[] {
+// 日課や「していたこと → 場所」に出てくるのに場所の一覧にない場所は、一覧の後ろに足す（確かめ方は「〜を見てください」）。
+// 設定に書いた場所は、どの時刻に探しても「ひととおり見ました」の前に必ず全部案内するため
+export function withExtraPlaces(home: Place[], names: (string | null | undefined)[]): Place[] {
   const out = [...home];
-  for (const r of routine) {
-    if (!r.placeName || out.some((p) => p.name === r.placeName)) continue;
-    out.push({ id: `r${out.length + 1}`, name: r.placeName, action: `${r.placeName}を見てください`, base: 20 });
+  for (const n of names) {
+    if (!n || findPlaceByName(out, n)) continue;
+    out.push({ id: `r${out.length + 1}`, name: n, action: `${n}を見てください`, base: 20 });
   }
   return out;
+}
+
+export function withRoutinePlaces(home: Place[], routine: RoutineEntry[]): Place[] {
+  return withExtraPlaces(home, routine.map((r) => r.placeName));
+}
+
+// 探すときに使う場所の全部: 家の場所 + 一日の流れの場所 + 「していたこと → 場所」の場所
+export function allSettingPlaces(home: Place[], routine: RoutineEntry[], acts: Activity[]): Place[] {
+  return withExtraPlaces(withRoutinePlaces(home, routine), acts.map((a) => a.placeName));
 }
 
 // 今の時刻から見て、さかのぼった順の日課（今日もう始まったもの → 足りなければ前の日の夜へ）。

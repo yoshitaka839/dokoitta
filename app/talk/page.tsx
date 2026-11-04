@@ -14,7 +14,7 @@ import { beep, canListen, keepAwake, listen, prepareBeep, primeSpeech, speak, st
 import { answerWhileWaiting, echoOf, foundAnswer, looksLikeReadAloud, quickWaitMs, yesNo, type FoundKind } from "@/lib/normalize";
 import { BODY_CHECK, getActivities, getHomePlaces, usingSamplePlaces, type Place } from "@/lib/places";
 import { effectiveTime, loadTryTime } from "@/lib/trytime";
-import { getRoutineText, parseRoutineText, withRoutinePlaces } from "@/lib/routine";
+import { allSettingPlaces, getRoutineText, parseRoutineText } from "@/lib/routine";
 import { clueFromRerank, hasClue, initialPlan, matchActivity, matchSpokenPlace, moveToFront, question, type Clue, type Step } from "@/lib/plan";
 import { foundCounts, foundHours, saveRecord, updateLatestFound, type SearchRecord } from "@/lib/history";
 import { getDeskSpots, loadProfile, lookQuestion } from "@/lib/profile";
@@ -193,9 +193,10 @@ export default function Talk() {
     const desk = getDeskSpots();
     const baseHome = getHomePlaces();
     const routine = parseRoutineText(getRoutineText(usingSamplePlaces()), baseHome);
-    const home = withRoutinePlaces(baseHome, routine);
-    placesRef.current = [...desk, BODY_CHECK, ...home];
     const acts = getActivities();
+    // 設定に書いた場所（家の場所・一日の流れ・していたこと → 場所）は、どの時刻でも全部案内する
+    const home = allSettingPlaces(baseHome, routine, acts);
+    placesRef.current = [...desk, BODY_CHECK, ...home];
     const now = currentTime();
     const plan = initialPlan({ home, found: foundCounts(), hours: foundHours(), now, routine, desk });
     let queue: Step[] = [...plan.first, ...plan.rest];
