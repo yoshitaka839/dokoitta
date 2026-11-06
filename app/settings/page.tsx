@@ -34,7 +34,7 @@ export default function Settings() {
   const [msg, setMsg] = useState("");
   const [at, setAt] = useState("");
   const [tryTime, setTryTime] = useState<string | null>(null);
-  const [tryInput, setTryInput] = useState("15:50");
+  const [tryInput, setTryInput] = useState("10:00");
   const [profile, setProfile] = useState<Profile>(DEFAULT_PROFILE);
   const [deskText, setDeskText] = useState("");
   const [awakeOk, setAwakeOk] = useState(true);
@@ -223,14 +223,14 @@ export default function Settings() {
       <textarea value={routineText} onChange={(e) => setRoutineText(e.target.value)} rows={10} style={area} />
       {unread.length > 0 && (
         <p style={{ color: "#b5482f", fontSize: 20 }}>
-          読めなかった行があります（時刻を「15:30」の形にしてください）: {unread.join("／")}
+          読めなかった行があります（時刻を「12:30」の形にしてください）: {unread.join("／")}
         </p>
       )}
 
       <h2 id="trytime">4. 試すときの時刻（練習・撮影用）</h2>
       <p className="muted">
         指定すると、探す画面はこの時刻として順番を決めます（ふだんは今の時刻）。指定している間は練習あつかいで、記録は回数に数えません。
-        解除し忘れても、次の日には自動で今の時刻にもどります。探す画面の上に「練習（15:50として）」と小さく出ます。
+        解除し忘れても、次の日には自動で今の時刻にもどります。探す画面の上に「練習（10:00として）」と小さく出ます。
       </p>
       <div className="card" style={{ fontSize: 22, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", borderColor: tryTime ? "#b5482f" : undefined }}>
         <strong style={{ color: tryTime ? "#b5482f" : undefined }}>

@@ -170,8 +170,8 @@ assert.equal(echoOf("found"), "");
   const now = new Date(2026, 10, 6, 16, 40);
   const hm = (d: Date) => `${d.getHours()}:${d.getMinutes()}`;
   assert.equal(hm(effectiveTime(null, null, now).date), "16:40");
-  assert.equal(hm(effectiveTime(null, { time: "15:50", day: "2026-11-06" }, now).date), "15:50");
-  assert.equal(effectiveTime("10:00", { time: "15:50", day: "2026-11-06" }, now).source, "url");
+  assert.equal(hm(effectiveTime(null, { time: "10:30", day: "2026-11-06" }, now).date), "10:30");
+  assert.equal(effectiveTime("10:00", { time: "10:30", day: "2026-11-06" }, now).source, "url");
 }
 
 // 仕様書の流れ: 机の気づきにくい場所（2か所まで）→ 体のまわり → 置いた場所
@@ -203,15 +203,15 @@ assert.equal(P.giveUp("台所"), "わかりました。次に見るなら、台�
 assert.ok(!/あった|なかった/.test(P.explain + P.reprompt));
 
 // 前の日に置いたまま、次の日に探すことがある（サンプル）。
-// 「〜に置きっぱなし」「15時半」「15:30〜16:00」のような書き方でも場所が抜けない
+// 「〜に置きっぱなし」「16時半」「16:30〜17:00」のような書き方でも場所が抜けない
 {
   const parsed = parseRoutineText(`7:00 > 朝ごはん > 台所
-15時半 > 片づけ > 物置の棚に置きっぱなし
-16:00〜17:00 > 畑 > 外に持って出る
+16時半 > 片づけ > 物置の棚に置きっぱなし
+17:00〜17:30 > 畑 > 外に持って出る
 18:00 > 夕ごはん > 台所
 21:00 > 寝る > 寝室の枕元に置いていく`, home);
-  assert.deepEqual(parsed.map((r) => [r.time, r.placeName]), [["7:00", "台所"], ["15:30", "物置の棚"], ["16:00", null], ["18:00", "台所"], ["21:00", "寝室"]]);
-  assert.deepEqual(unreadRoutineLines("15:30 > 片づけ > 物置の棚\nあさ > 体操 > 庭", home), ["あさ > 体操 > 庭"]);
+  assert.deepEqual(parsed.map((r) => [r.time, r.placeName]), [["7:00", "台所"], ["16:30", "物置の棚"], ["17:00", null], ["18:00", "台所"], ["21:00", "寝室"]]);
+  assert.deepEqual(unreadRoutineLines("16:30 > 片づけ > 物置の棚\nあさ > 体操 > 庭", home), ["あさ > 体操 > 庭"]);
 
   // 設定に書いた場所（家の場所・一日の流れ・していたこと → 場所）は、どの時刻に探しても全部案内する
   const acts2 = parseActivitiesText("手紙 > 文机の引き出し\n新聞 > 居間");
@@ -232,18 +232,18 @@ assert.ok(!/あった|なかった/.test(P.explain + P.reprompt));
   assert.deepEqual(n8.slice(0, 4), ["頭の上・首元・ポケット", "物置の棚", "台所", "寝室"]);
   assert.equal(at8.first[1].reason, "きのうの片づけのあと、物置の棚に置いたままかもしれません");
   // 朝の日課がいくつも済んでいても、前の日の夕方の場所が、よく置く場所より前に来る
-  const r3 = parseRoutineText("6:00 > 顔を洗う > 洗面所\n7:00 > 朝ごはん > 台所\n8:00 > 新聞 > 居間\n15:30 > 片づけ > 物置の棚\n21:00 > 寝る > 寝室", home);
+  const r3 = parseRoutineText("6:00 > 顔を洗う > 洗面所\n7:00 > 朝ごはん > 台所\n8:00 > 新聞 > 居間\n16:30 > 片づけ > 物置の棚\n21:00 > 寝る > 寝室", home);
   const h3 = allSettingPlaces(home, r3, []);
   const at10b = initialPlan({ home: h3, found: {}, now: new Date(2026, 10, 6, 10, 0), clue: null, routine: r3 });
   assert.deepEqual(at10b.first.map((s) => s.place.name).slice(1, 6), ["居間のテーブル", "台所", "洗面所", "物置の棚", "寝室"]);
-  // 朝5時、これからする日課の場所（机）に取りに行って「ない」→ 前の日の夕方の場所が先、机の場所はそのあと
-  const r5 = parseRoutineText("5:00 > 書きもの > 机\n7:00 > 朝ごはん > 台所\n15:30 > 片づけ > 物置の棚\n18:00 > 夕ごはん > 台所\n20:00 > 歯をみがく > 洗面所", home);
+  // 朝早く、これからする日課の場所（机）に取りに行って「ない」→ 前の日の夕方の場所が先、机の場所はそのあと
+  const r5 = parseRoutineText("6:00 > 書きもの > 机\n7:00 > 朝ごはん > 台所\n16:30 > 片づけ > 物置の棚\n18:00 > 夕ごはん > 台所\n20:00 > 歯をみがく > 洗面所", home);
   const h5 = allSettingPlaces(home, r5, []);
-  const at5b = initialPlan({ home: h5, found: {}, now: new Date(2026, 10, 6, 5, 0), clue: null, routine: r5 });
+  const at5b = initialPlan({ home: h5, found: {}, now: new Date(2026, 10, 6, 6, 0), clue: null, routine: r5 });
   assert.deepEqual(at5b.first.map((s) => s.place.name).slice(1, 5), ["物置の棚", "台所", "洗面所", "机"]);
   assert.equal(question({ step: at5b.first[1], explain: false }), "きのうの片づけのあと、物置の棚に置いたままかもしれません。物置の棚の上を見てください。");
-  // 4時台（今日の日課がまだない）も同じ
-  const at4 = initialPlan({ home: h5, found: {}, now: new Date(2026, 10, 6, 4, 40), clue: null, routine: r5 });
+  // 日課の前（今日の日課がまだない）も同じ
+  const at4 = initialPlan({ home: h5, found: {}, now: new Date(2026, 10, 6, 5, 40), clue: null, routine: r5 });
   assert.equal(at4.first[1].place.name, "物置の棚");
   assert.equal(leftoverReason(r5[4]), "きのう歯をみがくとき、洗面所に置いたままかもしれません");
   // 午後は今日の日課から（前の日の夕方は早めにしない）

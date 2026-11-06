@@ -41,7 +41,7 @@ function isPractice(): boolean {
   return (!!q && (q.has("practice") || q.has("at"))) || loadTryTime() !== null;
 }
 
-// 順番を決める時刻: ?at=15:50 → 設定の「試すときの時刻」 → 今の時刻
+// 順番を決める時刻: ?at=10:00 → 設定の「試すときの時刻」 → 今の時刻
 function currentTime(): Date {
   return effectiveTime(urlParams()?.get("at") ?? null, loadTryTime()).date;
 }

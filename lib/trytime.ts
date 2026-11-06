@@ -4,7 +4,7 @@
 
 const KEY = "dokoitta-try-time";
 
-export type TryTime = { time: string; day: string }; // time「15:50」, day「2026-11-06」
+export type TryTime = { time: string; day: string }; // time「10:00」, day「2026-11-06」
 
 const dayOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 

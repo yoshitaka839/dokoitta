@@ -8,7 +8,7 @@ import { aliases, findPlaceByName, type Activity, type Place } from "./places";
 
 export type RoutineEntry = {
   minutes: number; // 0:00 からの分
-  time: string; // 表示用「15:30」
+  time: string; // 表示用「12:30」
   activity: string; // 読み上げる日課の名前（最初の一つ）
   placeName: string | null; // 場所が変わらない日課は null
 };
@@ -34,7 +34,7 @@ const toHalf = (s: string) =>
 const stripParens = (s: string) => s.replace(/[（(][^）)]*[）)]/g, "").trim();
 
 function parseTime(s: string): number | null {
-  // 「15:30〜16:00」のような幅は始まりの時刻だけ、「15時半」は30分として読む
+  // 「16:30〜17:00」のような幅は始まりの時刻だけ、「16時半」は30分として読む
   const t = toHalf(s).replace(/\s/g, "").replace(/[〜~～\-－].*$/, "").replace(/時半$/, "時30分");
   const m = t.match(/^(\d{1,2})(?::|時)(\d{1,2})?分?$/) ?? t.match(/^(\d{1,2})$/);
   if (!m) return null;
