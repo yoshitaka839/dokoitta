@@ -2,6 +2,8 @@
 
 老眼鏡をよく置き忘れる高齢の家族が、探すのに疲れて度の合わない古い老眼鏡で我慢してしまわないように、声で一か所ずつ探し続けられるようにする iPad 向け Web アプリです（Built with Claude: Japan 2026 ハッカソン作品）。
 
+**デモ動画（2分57秒）: [https://youtu.be/kVmYKtbHfyM](https://youtu.be/kVmYKtbHfyM)**
+
 公開中: https://dokoitta-one.vercel.app/talk
 （iPad の Safari をおすすめします。ログインは不要です。家族の設定がないときは、サンプルの家の設定で動きます。）
 
@@ -28,7 +30,7 @@
 ## ページ
 | ページ | 役目 |
 |---|---|
-| [/talk](https://dokoitta-one.vercel.app/talk) | 本体。大きなボタンを押すと探し始めます（`?practice=1` で練習） |
+| [/talk](https://dokoitta-one.vercel.app/talk) | 本体。大きなボタンを押すと探し始めます（`?practice=1` で練習、[`?at=5:00`](https://dokoitta-one.vercel.app/talk?at=5:00) で朝5時として試す） |
 | [/settings](https://dokoitta-one.vercel.app/settings) | 家族用の設定（家の場所、一日の流れ、していたこと → 場所）。「はじめての準備」の案内つき |
 | [/family](https://dokoitta-one.vercel.app/family) | 探した記録 |
 | [/voice-test](https://dokoitta-one.vercel.app/voice-test) | 声の聞き取りと読み上げの確認 |
