@@ -19,7 +19,7 @@ export const SAMPLE_ROUTINE_TEXT = `6:00 > 顔を洗う > 洗面所
 8:00 > 新聞 > 居間のテーブル
 10:00 > 散歩 > そのまま（外に持って出ない）
 12:00 > 昼ごはん > 台所
-13:00 > 昼寝 > ソファ
+13:30 > 買い物 > 玄関
 15:00 > テレビ > テレビのそば
 18:00 > 夕ごはん > 台所
 21:00 > 寝る > 寝室の枕元`;
@@ -77,7 +77,7 @@ export function parseRoutineText(text: string, home: Place[]): RoutineEntry[] {
     const line = raw.trim();
     if (!line || line.startsWith("#")) continue;
     let [t, act, where] = line.split(/>|＞|→/).map((x) => (x ?? "").trim());
-    // 「4:30 顔洗い > 洗面所」のように、時刻と日課を空白で区切った書き方も受け付ける
+    // 「20:00 テレビ > テレビのそば」のように、時刻と日課を空白で区切った書き方も受け付ける
     const lead = toHalf(t ?? "").match(/^(\d{1,2}(?::\d{1,2}|時(?:\d{1,2}分?)?)?)[\s　]+(.+)$/);
     if (lead && where === undefined) [t, act, where] = [lead[1], lead[2], act];
     const minutes = parseTime(t ?? "");

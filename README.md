@@ -38,7 +38,6 @@
 ## 資料
 - [docs/SPEC.md](docs/SPEC.md): 仕様書
 - [docs/試行錯誤の記録.md](docs/試行錯誤の記録.md): 誰がどこで困り、なぜ、どう直したか
-- [docs/note用の記録.md](docs/note用の記録.md): 開発の記録
 
 ## テスト
 ```

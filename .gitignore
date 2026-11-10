@@ -15,3 +15,6 @@ out/
 # Next.js が自動で作るファイル
 next-env.d.ts
 *.tsbuildinfo
+
+# 開発の日記は手元にだけ残す（GitHub には上げない）
+docs/note用の記録.md
